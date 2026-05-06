@@ -370,23 +370,124 @@ def fmt_pct(v: float, signed: bool = False) -> str:
     return f"{v*100:,.2f}%".replace(",", " ")
 
 
-def style_dashboard(df: pd.DataFrame) -> pd.DataFrame:
-    arrow = df["variation"].apply(lambda v: "▲" if v > 0 else ("▼" if v < 0 else "•"))
-    out = pd.DataFrame({
-        "": arrow,
-        "Symbole": df["ticker"],
-        "Quantité": df["quantite"].map(lambda v: f"{v:,.0f}".replace(",", " ")),
-        "CMP": df["cmp"].map(lambda v: f"{v:,.2f}".replace(",", " ")),
-        "Coût total": df["cout_total"].map(fmt_xof),
-        "Valorisation": df["valorisation"].map(fmt_xof),
-        "+/- estim.": df["diff_estim"].map(lambda v: fmt_xof(v, signed=True)),
-        "Poids": df["poids"].map(fmt_pct),
-        "Cours veille": df["prev_close"].map(lambda v: f"{v:,.0f}".replace(",", " ")),
-        "Cours jour": df["close"].map(lambda v: f"{v:,.0f}".replace(",", " ")),
-        "Variation": df["variation"].map(lambda v: fmt_xof(v, signed=True)),
-        "+/- value jour": df["plus_moins_value"].map(lambda v: fmt_xof(v, signed=True)),
-    })
-    return out
+def _cell(val: str, numeric_val: float | None = None,
+          colored: bool = False) -> str:
+    """Return an HTML <td> cell, optionally colored green/red."""
+    if not colored or numeric_val is None:
+        return f"<td>{val}</td>"
+    if numeric_val > 0:
+        return (f"<td style='color:#1A6B3E;font-weight:500;'>"
+                f"<span style='color:#1A6B3E'>▲</span> {val}</td>")
+    elif numeric_val < 0:
+        return (f"<td style='color:#B53A2F;font-weight:500;'>"
+                f"<span style='color:#B53A2F'>▼</span> {val}</td>")
+    else:
+        return f"<td style='color:#8A6E48;'>{val}</td>"
+
+
+def render_html_table(df_source: pd.DataFrame) -> None:
+    """Render the dashboard positions table as styled HTML via st.markdown.
+
+    Columns '+/- estim.' and '+/- value jour' are colored green/red.
+    The first column (arrow indicator) is dropped — color encodes it instead.
+    """
+    cols = [
+        ("Symbole",       "ticker",          False, None),
+        ("Quantité",      "quantite",        False, None),
+        ("CMP",           "cmp",             False, None),
+        ("Coût total",    "cout_total",      False, None),
+        ("Valorisation",  "valorisation",    False, None),
+        ("+/- estim.",    "diff_estim",      True,  "diff_estim"),
+        ("Poids",         "poids",           False, None),
+        ("Cours veille",  "prev_close",      False, None),
+        ("Cours jour",    "close",           False, None),
+        ("Variation",     "variation",       True,  "variation"),
+        ("+/- value jour","plus_moins_value",True,  "plus_moins_value"),
+    ]
+
+    fmt_map = {
+        "ticker":          lambda v: str(v),
+        "quantite":        lambda v: f"{v:,.0f}".replace(",", " "),
+        "cmp":             lambda v: f"{v:,.2f}".replace(",", " "),
+        "cout_total":      fmt_xof,
+        "valorisation":    fmt_xof,
+        "diff_estim":      lambda v: fmt_xof(v, signed=True),
+        "poids":           fmt_pct,
+        "prev_close":      lambda v: f"{v:,.0f}".replace(",", " ") if v else "-",
+        "close":           lambda v: f"{v:,.0f}".replace(",", " ") if v else "-",
+        "variation":       lambda v: fmt_xof(v, signed=True),
+        "plus_moins_value":lambda v: fmt_xof(v, signed=True),
+    }
+
+    header = "".join(
+        f"<th>{label}</th>" for label, _, _, _ in cols
+    )
+
+    rows_html = ""
+    for i, row in df_source.iterrows():
+        cells = ""
+        for label, col, colored, val_col in cols:
+            formatted = fmt_map[col](row[col])
+            numeric = float(row[val_col]) if (colored and val_col) else None
+            cells += _cell(formatted, numeric, colored)
+        bg = "#FFFFFF" if i % 2 == 0 else "#FBF8F3"
+        rows_html += (
+            f"<tr style='background:{bg};border-bottom:0.5px solid #F0E8DA;'>"
+            f"{cells}</tr>"
+        )
+
+    html = f"""
+<div style='overflow-x:auto;border:0.5px solid #E8D9C0;
+            border-radius:8px;background:#FFFFFF;margin-bottom:1rem;'>
+<table style='width:100%;border-collapse:collapse;font-size:0.83rem;
+              color:#2C1F0F;'>
+  <thead>
+    <tr style='background:#F2EBE0;border-bottom:1px solid #E8D9C0;'>
+      {header}
+    </tr>
+  </thead>
+  <tbody>
+    {rows_html}
+  </tbody>
+</table>
+</div>"""
+    st.markdown(html, unsafe_allow_html=True)
+
+
+def render_top_mouvements(df_source: pd.DataFrame) -> None:
+    """Render the top mouvements table with colored +/- value and variation."""
+    top = df_source.assign(abs_var=df_source["plus_moins_value"].abs())
+    top = top.nlargest(10, "abs_var")
+
+    header = "<th>Symbole</th><th>+/- value</th><th>Variation unitaire</th>"
+    rows_html = ""
+    for i, row in top.iterrows():
+        pnl = float(row["plus_moins_value"])
+        var = float(row["variation"])
+        bg = "#FFFFFF" if i % 2 == 0 else "#FBF8F3"
+
+        td_ticker = f"<td style='font-weight:500;'>{row['ticker']}</td>"
+        td_pnl = _cell(fmt_xof(pnl, signed=True), pnl, colored=True)
+        td_var = _cell(fmt_xof(var, signed=True), var, colored=True)
+        rows_html += (
+            f"<tr style='background:{bg};border-bottom:0.5px solid #F0E8DA;'>"
+            f"{td_ticker}{td_pnl}{td_var}</tr>"
+        )
+
+    html = f"""
+<div style='overflow-x:auto;border:0.5px solid #E8D9C0;
+            border-radius:8px;background:#FFFFFF;'>
+<table style='width:100%;border-collapse:collapse;font-size:0.83rem;
+              color:#2C1F0F;'>
+  <thead>
+    <tr style='background:#F2EBE0;border-bottom:1px solid #E8D9C0;'>
+      {header}
+    </tr>
+  </thead>
+  <tbody>{rows_html}</tbody>
+</table>
+</div>"""
+    st.markdown(html, unsafe_allow_html=True)
 
 
 # ---------------------------------------------------------------------------
@@ -476,11 +577,11 @@ if page == "📈 Tableau de bord":
         rows_zero = rows[rows["quantite"] == 0]
 
         st.subheader("Positions actives")
-        st.table(style_dashboard(rows_active))
+        render_html_table(rows_active)
 
         if not rows_zero.empty:
             with st.expander(f"Lignes soldées ({len(rows_zero)})"):
-                st.table(style_dashboard(rows_zero))
+                render_html_table(rows_zero)
 
         st.divider()
         col_a, col_b = st.columns([2, 3])
@@ -494,18 +595,7 @@ if page == "📈 Tableau de bord":
 
         with col_b:
             st.subheader("Top mouvements du jour")
-            top = rows_active.assign(abs_var=rows_active["plus_moins_value"].abs())
-            top = top.nlargest(10, "abs_var")[["ticker", "plus_moins_value", "variation"]]
-            top_display = pd.DataFrame({
-                "Symbole": top["ticker"],
-                "+/- value": top["plus_moins_value"].map(
-                    lambda v: fmt_xof(v, signed=True)
-                ),
-                "Variation unitaire": top["variation"].map(
-                    lambda v: fmt_xof(v, signed=True)
-                ),
-            })
-            st.table(top_display)
+            render_top_mouvements(rows_active)
 
         st.download_button(
             "⬇️ Exporter le tableau (CSV)",
