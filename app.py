@@ -132,6 +132,41 @@ st.markdown("""
     color: #2C1F0F !important;
 }
 
+/* ── st.table (HTML table) ── */
+[data-testid="stTable"] table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.85rem;
+    color: #2C1F0F !important;
+    background-color: #FFFFFF;
+    border: 0.5px solid #E8D9C0;
+    border-radius: 8px;
+    overflow: hidden;
+}
+[data-testid="stTable"] thead tr {
+    background-color: #F2EBE0 !important;
+    border-bottom: 1px solid #E8D9C0;
+}
+[data-testid="stTable"] thead th {
+    color: #633806 !important;
+    font-weight: 500 !important;
+    padding: 8px 12px !important;
+    font-size: 0.8rem !important;
+    text-align: left;
+}
+[data-testid="stTable"] tbody tr:nth-child(even) {
+    background-color: #FBF8F3 !important;
+}
+[data-testid="stTable"] tbody tr:hover {
+    background-color: #FAEEDA !important;
+}
+[data-testid="stTable"] tbody td {
+    color: #2C1F0F !important;
+    padding: 6px 12px !important;
+    font-size: 0.83rem !important;
+    border-bottom: 0.5px solid #F0E8DA;
+}
+
 /* ── Metric cards ── */
 [data-testid="stMetric"] {
     background-color: #FFFFFF;
@@ -441,20 +476,11 @@ if page == "📈 Tableau de bord":
         rows_zero = rows[rows["quantite"] == 0]
 
         st.subheader("Positions actives")
-        st.dataframe(
-            style_dashboard(rows_active),
-            use_container_width=True,
-            hide_index=True,
-            height=min(600, 35 + 35 * len(rows_active)),
-        )
+        st.table(style_dashboard(rows_active))
 
         if not rows_zero.empty:
             with st.expander(f"Lignes soldées ({len(rows_zero)})"):
-                st.dataframe(
-                    style_dashboard(rows_zero),
-                    use_container_width=True,
-                    hide_index=True,
-                )
+                st.table(style_dashboard(rows_zero))
 
         st.divider()
         col_a, col_b = st.columns([2, 3])
@@ -470,12 +496,16 @@ if page == "📈 Tableau de bord":
             st.subheader("Top mouvements du jour")
             top = rows_active.assign(abs_var=rows_active["plus_moins_value"].abs())
             top = top.nlargest(10, "abs_var")[["ticker", "plus_moins_value", "variation"]]
-            top = top.rename(columns={
-                "ticker": "Symbole",
-                "plus_moins_value": "+/- value",
-                "variation": "Variation unitaire",
+            top_display = pd.DataFrame({
+                "Symbole": top["ticker"],
+                "+/- value": top["plus_moins_value"].map(
+                    lambda v: fmt_xof(v, signed=True)
+                ),
+                "Variation unitaire": top["variation"].map(
+                    lambda v: fmt_xof(v, signed=True)
+                ),
             })
-            st.dataframe(top, use_container_width=True, hide_index=True)
+            st.table(top_display)
 
         st.download_button(
             "⬇️ Exporter le tableau (CSV)",
