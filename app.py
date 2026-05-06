@@ -370,8 +370,69 @@ def fmt_pct(v: float, signed: bool = False) -> str:
     return f"{v*100:,.2f}%".replace(",", " ")
 
 
-def _cell(val: str, numeric_val: float | None = None,
-          colored: bool = False) -> str:
+def render_table(
+    df: pd.DataFrame,
+    height: int | None = None,
+    color_cols: list[str] | None = None,
+    color_source: dict[str, str] | None = None,
+) -> None:
+    """Render a DataFrame as a styled HTML table via st.markdown.
+
+    This bypasses Streamlit's Canvas/WebGL renderer (st.dataframe) which
+    ignores CSS color rules in custom themes.
+
+    Args:
+        df: DataFrame with already-formatted string values for display.
+        height: optional max-height in px (adds vertical scroll).
+        color_cols: list of column names to apply green/red coloring to.
+            The cell value must start with '+' (green) or '-' or '▼' (red).
+        color_source: dict mapping display col name → raw numeric col name
+            in the original data. Not needed when values start with +/-.
+    """
+    color_cols = color_cols or []
+
+    def _td(col: str, val: str) -> str:
+        if col not in color_cols:
+            return f"<td>{val}</td>"
+        s = str(val).strip()
+        if s.startswith("+") or s.startswith("▲"):
+            style = "color:#1A6B3E;font-weight:500;"
+        elif s.startswith("-") or s.startswith("▼"):
+            style = "color:#B53A2F;font-weight:500;"
+        else:
+            style = "color:#8A6E48;"
+        return f"<td style='{style}'>{val}</td>"
+
+    header = "".join(
+        f"<th style='background:#F2EBE0;color:#633806;font-weight:500;"
+        f"padding:7px 11px;font-size:0.79rem;text-align:left;"
+        f"border-bottom:1px solid #E8D9C0;white-space:nowrap;'>{c}</th>"
+        for c in df.columns
+    )
+
+    rows_html = ""
+    for i, (_, row) in enumerate(df.iterrows()):
+        bg = "#FFFFFF" if i % 2 == 0 else "#FBF8F3"
+        cells = "".join(_td(col, row[col]) for col in df.columns)
+        rows_html += (
+            f"<tr style='background:{bg};border-bottom:"
+            f"0.5px solid #F0E8DA;'>{cells}</tr>"
+        )
+
+    scroll_style = (
+        f"max-height:{height}px;overflow-y:auto;" if height else ""
+    )
+
+    html = (
+        f"<div style='overflow-x:auto;{scroll_style}border:0.5px solid "
+        f"#E8D9C0;border-radius:8px;background:#FFFFFF;margin-bottom:0.5rem;'>"
+        f"<table style='width:100%;border-collapse:collapse;font-size:0.82rem;"
+        f"color:#2C1F0F;'>"
+        f"<thead><tr>{header}</tr></thead>"
+        f"<tbody>{rows_html}</tbody>"
+        f"</table></div>"
+    )
+    st.markdown(html, unsafe_allow_html=True)
     """Return an HTML <td> cell, optionally colored green/red."""
     if not colored or numeric_val is None:
         return f"<td>{val}</td>"
@@ -646,7 +707,9 @@ elif page == "📊 Récap variations":
         display["Var. YTD"] = display["Var. YTD"].map(lambda v: fmt_xof(v, signed=True))
         display["Var. YTD %"] = display["Var. YTD %"].map(fmt_pct)
 
-        st.dataframe(display, use_container_width=True, hide_index=True)
+        render_table(display, height=None,
+                     color_cols=["Var. jour", "Var. jour %",
+                                 "Var. YTD", "Var. YTD %"])
 
         st.download_button(
             "⬇️ Exporter le récap (CSV)",
@@ -667,7 +730,8 @@ elif page == "📊 Récap variations":
                 lambda v: fmt_xof(v, signed=True)
             )
             top_day["Var. jour %"] = top_day["Var. jour %"].map(fmt_pct)
-            st.dataframe(top_day, use_container_width=True, hide_index=True)
+            render_table(top_day, height=None,
+                         color_cols=["Var. jour", "Var. jour %"])
         with col_b:
             st.subheader("Top variations YTD")
             top_ytd = (
@@ -678,7 +742,8 @@ elif page == "📊 Récap variations":
                 lambda v: fmt_xof(v, signed=True)
             )
             top_ytd["Var. YTD %"] = top_ytd["Var. YTD %"].map(fmt_pct)
-            st.dataframe(top_ytd, use_container_width=True, hide_index=True)
+            render_table(top_ytd, height=None,
+                         color_cols=["Var. YTD", "Var. YTD %"])
 
 
 # ---------------------------------------------------------------------------
@@ -774,7 +839,7 @@ elif page == "🎯 Expositions":
             }).copy()
             display_global["Valorisation"] = display_global["Valorisation"].map(fmt_xof)
             display_global["Poids"] = display_global["Poids"].map(fmt_pct)
-            st.dataframe(display_global, use_container_width=True, hide_index=True)
+            render_table(display_global, height=None)
 
             st.download_button(
                 "⬇️ Exporter (CSV)",
@@ -822,7 +887,7 @@ elif page == "🎯 Expositions":
         display_sector = sector_table.copy()
         display_sector["Valorisation"] = display_sector["Valorisation"].map(fmt_xof)
         display_sector["Poids global"] = display_sector["Poids global"].map(fmt_pct)
-        st.dataframe(display_sector, use_container_width=True, hide_index=True)
+        render_table(display_sector, height=None)
 
         # Sector × FCP matrix
         with st.expander("Voir la matrice secteurs × FCPs"):
@@ -864,7 +929,7 @@ elif page == "🎯 Expositions":
                 ))
                 export_sec_df = m
 
-            st.dataframe(formatted, use_container_width=True)
+            render_table(formatted, height=None)
 
             st.download_button(
                 "⬇️ Exporter la matrice sectorielle (CSV)",
@@ -897,14 +962,12 @@ elif page == "🎯 Expositions":
             if view_mode_single == "Montant (FCFA)":
                 single["Valorisation"] = single["Valorisation"].map(fmt_xof)
                 single["Poids"] = single["Poids"].map(fmt_pct)
-                st.dataframe(single, use_container_width=True,
-                             hide_index=True, height=500)
+                render_table(single, height=500)
                 export_df = global_by_ticker
             else:
                 single["Valorisation"] = single["Valorisation"].map(fmt_xof)
                 single["Poids"] = single["Poids"].map(fmt_pct)
-                st.dataframe(single, use_container_width=True,
-                             hide_index=True, height=500)
+                render_table(single, height=500)
                 export_df = global_by_ticker
             st.download_button(
                 "⬇️ Exporter (CSV)",
@@ -938,7 +1001,7 @@ elif page == "🎯 Expositions":
                 formatted = matrix_display.apply(lambda col: col.map(
                     lambda v: f"{v:,.0f}".replace(",", " ") if v > 0 else "-"
                 ))
-                st.dataframe(formatted, use_container_width=True, height=600)
+                render_table(formatted, height=600)
                 export_df = matrix_display
 
             elif view_mode == "Poids dans le FCP":
@@ -947,7 +1010,7 @@ elif page == "🎯 Expositions":
                 formatted = matrix_pct.apply(lambda col: col.map(
                     lambda v: f"{v*100:.1f}%" if v > 0 else "-"
                 ))
-                st.dataframe(formatted, use_container_width=True, height=600)
+                render_table(formatted, height=600)
                 export_df = matrix_pct
 
             else:  # Poids global
@@ -956,7 +1019,7 @@ elif page == "🎯 Expositions":
                 formatted = matrix_pct.apply(lambda col: col.map(
                     lambda v: f"{v*100:.2f}%" if v > 0 else "-"
                 ))
-                st.dataframe(formatted, use_container_width=True, height=600)
+                render_table(formatted, height=600)
                 export_df = matrix_pct
 
             st.download_button(
@@ -986,7 +1049,7 @@ elif page == "🎯 Expositions":
             display_conc["Valorisation"] = display_conc["Valorisation"].map(fmt_xof)
             for c in ["Top 1 %", "Top 3 %", "Top 5 %", "Top 10 %"]:
                 display_conc[c] = display_conc[c].map(fmt_pct)
-            st.dataframe(display_conc, use_container_width=True, hide_index=True)
+            render_table(display_conc, height=None)
 
             st.download_button(
                 "⬇️ Exporter (CSV)",
@@ -1045,8 +1108,7 @@ elif page == "📋 Suivi des cibles":
                     st.write(
                         f"**{len(df_up)}** lignes détectées pour **{fcp}** :"
                     )
-                    st.dataframe(df_up[["ticker", "weight_pct", "amount_fcfa"]].head(10),
-                                 use_container_width=True, hide_index=True)
+                    render_table(df_up[["ticker", "weight_pct", "amount_fcfa"]].head(10), height=None)
                     if st.button("Confirmer l'import", key="targets_import_confirm"):
                         n = db.replace_targets_for_fcp(fcp, df_up)
                         _clear_data_cache()
@@ -1180,11 +1242,10 @@ elif page == "📋 Suivi des cibles":
                 "Poids actuel", "Cible %", "Cible FCFA",
                 "Écart FCFA", "Écart %", "Qté écart", "Sens",
             ]
-            st.dataframe(
+            render_table(
                 display[cols_show].rename(columns={"ticker": "Ticker"}),
-                use_container_width=True,
-                hide_index=True,
                 height=600,
+                color_cols=["Écart FCFA", "Écart %", "Qté écart"],
             )
 
             # Export
@@ -1210,11 +1271,7 @@ elif page == "📋 Suivi des cibles":
                 raw_disp["amount_fcfa"] = raw_disp["amount_fcfa"].map(
                     lambda v: fmt_xof(v) if pd.notna(v) else "—"
                 )
-                st.dataframe(
-                    raw_disp[["ticker", "weight_pct", "amount_fcfa", "updated_at"]],
-                    use_container_width=True,
-                    hide_index=True,
-                )
+                render_table(raw_disp[["ticker", "weight_pct", "amount_fcfa", "updated_at"]], height=None)
                 if st.button("🗑️ Effacer toutes les cibles de ce FCP", key="clear_all_targets"):
                     db.replace_targets_for_fcp(fcp, pd.DataFrame(columns=["ticker","weight_pct","amount_fcfa"]))
                     _clear_data_cache()
@@ -1354,11 +1411,7 @@ elif page == "💼 Transactions":
             mime="text/csv",
         )
 
-        st.dataframe(
-            tx[["id", "date", "ticker", "sens", "quantite", "prix", "valeur", "frais", "cost_in", "cost_out"]],
-            use_container_width=True,
-            hide_index=True,
-        )
+        render_table(tx[["id", "date", "ticker", "sens", "quantite", "prix", "valeur", "frais", "cost_in", "cost_out"]], height=None)
 
         with st.expander("🗑️ Supprimer une transaction"):
             tx_id_del = st.number_input("ID à supprimer", min_value=0, step=1, key="tx_del_id")
@@ -1431,11 +1484,7 @@ elif page == "🌐 Cours BRVM":
             display["variation_pct"] = display["variation_pct"].map(
                 lambda v: f"{v:+.2f}%" if pd.notna(v) else "-"
             )
-        st.dataframe(
-            display.drop(columns=["fetched_at"], errors="ignore"),
-            use_container_width=True,
-            hide_index=True,
-        )
+        render_table(display.drop(columns=["fetched_at"], errors="ignore"), height=None)
 
     st.divider()
     with st.expander("📥 Import manuel CSV (fallback si scraping bloqué)"):
@@ -1560,11 +1609,7 @@ elif page == "📚 Historique cours":
             st.line_chart(pivot)
 
             with st.expander("Voir les données brutes"):
-                st.dataframe(
-                    sub.sort_values(["ticker", "date"]),
-                    use_container_width=True,
-                    hide_index=True,
-                )
+                render_table(sub.sort_values(["ticker", "date"]), height=None)
 
 
 # ---------------------------------------------------------------------------
@@ -1610,10 +1655,7 @@ elif page == "⚙️ Paramètres":
 
         if divs:
             st.write("**Dividendes actifs :**")
-            st.dataframe(
-                pd.DataFrame(list(divs.items()), columns=["Symbole", "Montant"]),
-                hide_index=True, use_container_width=True,
-            )
+            render_table(pd.DataFrame(list(divs.items()), columns=["Symbole", "Montant"]), height=None)
 
             col_del1, col_del2 = st.columns([1, 1])
             with col_del1:
