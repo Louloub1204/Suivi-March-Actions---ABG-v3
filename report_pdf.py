@@ -71,7 +71,7 @@ def _xof(v, signed: bool = False) -> str:
     elif abs(v) >= 1_000_000:
         s = f"{v/1_000_000:.1f} M"
     else:
-        s = f"{int(round(v)):,}".replace(",", "\u202f")
+        s = f"{int(round(v)):,}".replace(",", " ")
     return (f"+{s}" if signed and v > 0 else s)
 
 
@@ -333,7 +333,7 @@ def _drivers_table(df: pd.DataFrame, positive: bool) -> Table:
                 f"{_arrow(vunit)} {_xof(vunit, signed=True)} FCFA",
                 _xof(r.get("close_prev")),
                 _xof(r.get("close_today")),
-                f"{r.get('qty_total', 0):,.0f}".replace(",", "\u202f"),
+                f"{r.get('qty_total', 0):,.0f}".replace(",", " "),
                 _xof(pnl, signed=True),
                 str(int(r.get("n_fcps", 1))),
             ])
@@ -406,7 +406,7 @@ def _action_fcp_section(drivers: pd.DataFrame,
             pnl_fcp_pct = float(rr.get("pnl_pct_of_fcp", 0) or 0)
             tbl_data.append([
                 rr["fcp"],
-                f"{rr['qty_now']:,.0f}".replace(",", "\u202f"),
+                f"{rr['qty_now']:,.0f}".replace(",", " "),
                 _xof(pnl_r, signed=True),
                 _pct(pnl_fcp_pct, signed=True),
             ])
