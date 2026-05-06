@@ -11,27 +11,56 @@ Replicates the Excel formulas from FCP PLACEMENT CROISSANCE:
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
-
 import pandas as pd
 
 from fcp_calendar import previous_cours_date
 
 
-@dataclass
 class PortfolioRow:
-    ticker: str
-    quantite: float
-    cmp: float
-    cout_total: float
-    valorisation: float
-    diff_estim: float
-    poids: float
-    prev_close: float
-    close: float
-    variation: float
-    plus_moins_value: float
-    dividende: float = 0.0
+    """Holds computed metrics for one ticker in one FCP dashboard."""
+
+    __slots__ = (
+        "ticker", "quantite", "cmp", "cout_total", "valorisation",
+        "diff_estim", "poids", "prev_close", "close", "variation",
+        "plus_moins_value", "dividende",
+    )
+
+    def __init__(
+        self,
+        ticker: str,
+        quantite: float,
+        cmp: float,
+        cout_total: float,
+        valorisation: float,
+        diff_estim: float,
+        poids: float,
+        prev_close: float,
+        close: float,
+        variation: float,
+        plus_moins_value: float,
+        dividende: float = 0.0,
+    ) -> None:
+        self.ticker = ticker
+        self.quantite = quantite
+        self.cmp = cmp
+        self.cout_total = cout_total
+        self.valorisation = valorisation
+        self.diff_estim = diff_estim
+        self.poids = poids
+        self.prev_close = prev_close
+        self.close = close
+        self.variation = variation
+        self.plus_moins_value = plus_moins_value
+        self.dividende = dividende
+
+    def __iter__(self):
+        """Allow dict(row) and DataFrame construction via row.__dict__."""
+        for s in self.__slots__:
+            yield s, getattr(self, s)
+
+    @property
+    def __dict__(self):  # type: ignore[override]
+        return dict(self)
 
 
 def compute_positions(
