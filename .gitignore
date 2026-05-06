@@ -1,0 +1,33 @@
+# Database (regenerated from seed_data on first run)
+*.db
+*.db-journal
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+.DS_Store
+
+# Streamlit cache
+.streamlit/secrets.toml
+
+# Excel temp files
+~$*.xlsx
+~$*.xlsm
+
+# Local exports
+exports/
+*.csv.bak
