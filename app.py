@@ -1458,7 +1458,7 @@ elif page == "⚙️ Paramètres":
         with col3:
             st.write("")
             st.write("")
-            if st.button("💾 Enregistrer dividende"):
+            if st.button("💾 Enregistrer dividende", key="div_save"):
                 db.set_dividend(fcp, div_ticker, float(div_amount))
                 st.success("Dividende enregistré.")
                 _clear_data_cache()
@@ -1470,6 +1470,28 @@ elif page == "⚙️ Paramètres":
                 pd.DataFrame(list(divs.items()), columns=["Symbole", "Montant"]),
                 hide_index=True, use_container_width=True,
             )
+
+            col_del1, col_del2 = st.columns([1, 1])
+            with col_del1:
+                if st.button(
+                    f"🗑️ Supprimer dividende {div_ticker}",
+                    key="div_del_one",
+                ):
+                    db.set_dividend(fcp, div_ticker, 0.0)
+                    _clear_data_cache()
+                    st.success(f"Dividende de {div_ticker} supprimé.")
+                    st.rerun()
+            with col_del2:
+                if st.button(
+                    f"🗑️ Effacer tous les dividendes ({fcp})",
+                    key="div_del_all",
+                    type="secondary",
+                ):
+                    for ticker_d in list(divs.keys()):
+                        db.set_dividend(fcp, ticker_d, 0.0)
+                    _clear_data_cache()
+                    st.success(f"Tous les dividendes de {fcp} supprimés.")
+                    st.rerun()
 
     st.divider()
     st.subheader("Maintenance")
