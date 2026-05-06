@@ -506,12 +506,7 @@ def _fcp_decomp_section(drivers: pd.DataFrame, styles: dict) -> list:
         .sort_values(ascending=False)
     )
 
-    # Two-column layout for FCPs
-    left_items: list = []
-    right_items: list = []
-    fcp_list = list(fcp_pnl.index)
-
-    for idx, fcp_name in enumerate(fcp_list):
+    for fcp_name in fcp_pnl.index:
         fcp_rows = (
             drivers[drivers["fcp"] == fcp_name]
             .assign(_abs=lambda d: d["pnl_total"].abs())
@@ -520,14 +515,14 @@ def _fcp_decomp_section(drivers: pd.DataFrame, styles: dict) -> list:
         total_fcp = float(fcp_pnl.get(fcp_name, 0))
         c = GREEN if total_fcp >= 0 else RED
 
-        block = []
-        block.append(Paragraph(
+        items.append(Paragraph(
             f"{fcp_name}   {_arrow(total_fcp)}  "
             f"{_xof(total_fcp, signed=True)} FCFA",
             ParagraphStyle("fb", parent=styles["sub"],
-                           textColor=c, spaceBefore=6),
+                           textColor=c, spaceBefore=5),
         ))
-        td = [["Titre", "Contribution", "% du FCP"]]
+
+        td = [["Titre", "Contribution (FCFA)", "% du P&L du FCP"]]
         ts = _base_ts(header_bg=BLUE_LIGHT)
         for j, (_, r) in enumerate(fcp_rows.iterrows(), 1):
             pnl_r = float(r["pnl_total"])
@@ -542,30 +537,12 @@ def _fcp_decomp_section(drivers: pd.DataFrame, styles: dict) -> list:
                 ("TEXTCOLOR", (1, j), (2, j), cr),
                 ("FONTNAME",  (1, j), (2, j), "Helvetica-Bold"),
             ]
-        t = Table(td, colWidths=[4*cm, 3*cm, 2.5*cm])
+        cw = [5*cm, 5*cm, 5*cm]
+        t = Table(td, colWidths=cw,
+                  rowHeights=[0.55*cm] * len(td))
         t.setStyle(TableStyle(ts))
-        block.append(t)
+        items.append(t)
 
-        if idx % 2 == 0:
-            left_items.extend(block)
-        else:
-            right_items.extend(block)
-
-    # Pad shorter column
-    while len(right_items) < len(left_items):
-        right_items.append(Spacer(1, 1))
-
-    col_w_2 = (W - 3.4*cm) / 2
-    two_col = Table(
-        [[left_items, right_items]],
-        colWidths=[col_w_2 - .3*cm, col_w_2 + .3*cm],
-    )
-    two_col.setStyle(TableStyle([
-        ("VALIGN", (0, 0), (-1, -1), "TOP"),
-        ("LEFTPADDING",  (0, 0), (-1, -1), 2),
-        ("RIGHTPADDING", (0, 0), (-1, -1), 2),
-    ]))
-    items.append(two_col)
     return items
 
 
