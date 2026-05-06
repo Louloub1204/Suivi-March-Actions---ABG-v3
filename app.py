@@ -350,34 +350,61 @@ elif page == "📊 Récap variations":
 elif page == "🎯 Expositions":
     st.header("Expositions cross-portefeuille")
     as_of_ts = pd.Timestamp(as_of)
-    st.caption(
-        f"Photographie des positions au **{as_of_ts.strftime('%d/%m/%Y')}** — "
-        f"valorisations basées sur le dernier cours connu pour chaque titre."
+
+    # ── Filtre FCP ──────────────────────────────────────────────────────────
+    tx_all = _cached_transactions()
+    prices = _cached_prices()
+    all_fcps = _cached_fcps()
+    divs_by_fcp = _cached_dividends_all(tuple(all_fcps))
+
+    filtre_options = ["Tous les FCPs"] + all_fcps
+    filtre_fcp = st.selectbox(
+        "Périmètre d'analyse",
+        options=filtre_options,
+        index=0,
+        key="exp_filtre_fcp",
     )
 
-    with st.spinner("Calcul des expositions sur les 24 FCPs…"):
-        tx_all = _cached_transactions()
-        prices = _cached_prices()
-        all_fcps = _cached_fcps()
-        divs_by_fcp = _cached_dividends_all(tuple(all_fcps))
-        exp = compute_exposures(tx_all, prices, all_fcps, as_of_ts, divs_by_fcp)
+    # Compute exposures for the selected scope
+    if filtre_fcp == "Tous les FCPs":
+        fcps_scope = all_fcps
+        scope_label = "tous les FCPs"
+    else:
+        fcps_scope = [filtre_fcp]
+        scope_label = filtre_fcp
+
+    st.caption(
+        f"Photographie des positions au **{as_of_ts.strftime('%d/%m/%Y')}** — "
+        f"périmètre : **{scope_label}**."
+    )
+
+    with st.spinner(f"Calcul des expositions — {scope_label}…"):
+        divs_scope = {f: divs_by_fcp.get(f, {}) for f in fcps_scope}
+        exp = compute_exposures(tx_all, prices, fcps_scope, as_of_ts, divs_scope)
 
     if exp.empty:
-        st.info("Aucune position à afficher.")
+        st.info("Aucune position à afficher pour ce périmètre.")
     else:
         total_global = float(exp["valorisation"].sum())
 
         # --- KPIs ---
         c1, c2, c3, c4 = st.columns(4)
-        c1.metric("Valorisation globale", fmt_xof(total_global))
+        c1.metric("Valorisation", fmt_xof(total_global))
         c2.metric("Tickers distincts", f"{exp['ticker'].nunique()}")
-        c3.metric("FCPs avec positions", f"{exp['fcp'].nunique()}")
+        c3.metric(
+            "FCPs" if filtre_fcp == "Tous les FCPs" else "FCP",
+            f"{exp['fcp'].nunique()}" if filtre_fcp == "Tous les FCPs" else filtre_fcp,
+        )
         c4.metric("Lignes totales", f"{len(exp)}")
 
         st.divider()
 
-        # --- Section 1: Top tickers globaux ---
-        st.subheader("Top expositions au niveau global")
+        # --- Section 1: Top tickers ---
+        st.subheader(
+            "Top expositions — tous FCPs confondus"
+            if filtre_fcp == "Tous les FCPs"
+            else f"Top expositions — {filtre_fcp}"
+        )
 
         global_by_ticker = (
             exp.groupby("ticker")["valorisation"].sum()
@@ -513,69 +540,106 @@ elif page == "🎯 Expositions":
         st.divider()
 
         # --- Section 2: Matrice ticker × FCP ---
-        st.subheader("Matrice détaillée tickers × FCPs")
-
-        view_mode = st.radio(
-            "Mode d'affichage",
-            ["Montant (FCFA)", "Poids dans le FCP", "Poids global"],
-            horizontal=True,
-            key="exp_view_mode",
+        st.subheader(
+            "Matrice détaillée tickers × FCPs"
+            if filtre_fcp == "Tous les FCPs"
+            else f"Détail des positions — {filtre_fcp}"
         )
 
-        # Pivot: rows=tickers (sorted by global exposure desc), cols=fcps
-        matrix_val = exp.pivot_table(
-            index="ticker", columns="fcp", values="valorisation", aggfunc="sum",
-            fill_value=0,
-        )
-        # Sort tickers by global exposure
-        matrix_val = matrix_val.loc[global_by_ticker["ticker"].tolist()]
+        if filtre_fcp != "Tous les FCPs":
+            # Single FCP view: simple table, no pivot needed
+            view_mode_single = st.radio(
+                "Mode d'affichage",
+                ["Montant (FCFA)", "Poids dans le FCP"],
+                horizontal=True,
+                key="exp_view_mode",
+            )
+            single = global_by_ticker.copy().rename(
+                columns={"ticker": "Ticker", "valorisation": "Valorisation"}
+            )
+            if view_mode_single == "Montant (FCFA)":
+                single["Valorisation"] = single["Valorisation"].map(fmt_xof)
+                single["Poids"] = single["Poids"].map(fmt_pct)
+                st.dataframe(single, use_container_width=True,
+                             hide_index=True, height=500)
+                export_df = global_by_ticker
+            else:
+                single["Valorisation"] = single["Valorisation"].map(fmt_xof)
+                single["Poids"] = single["Poids"].map(fmt_pct)
+                st.dataframe(single, use_container_width=True,
+                             hide_index=True, height=500)
+                export_df = global_by_ticker
+            st.download_button(
+                "⬇️ Exporter (CSV)",
+                data=export_df.to_csv(index=False).encode("utf-8"),
+                file_name=f"positions_{filtre_fcp.replace(' ','_')}_{as_of_ts.date()}.csv",
+                mime="text/csv",
+                key="dl_matrix",
+            )
 
-        if view_mode == "Montant (FCFA)":
-            matrix_display = matrix_val.copy()
-            # Add total column and total row
-            matrix_display["TOTAL"] = matrix_display.sum(axis=1)
-            total_row = matrix_display.sum(axis=0)
-            total_row.name = "TOTAL"
-            matrix_display = pd.concat([matrix_display, total_row.to_frame().T])
-            # Format FCFA
-            formatted = matrix_display.apply(lambda col: col.map(
-                lambda v: f"{v:,.0f}".replace(",", " ") if v > 0 else "-"
-            ))
-            st.dataframe(formatted, use_container_width=True, height=600)
-            export_df = matrix_display
+        else:
+            # All FCPs: full pivot matrix
+            view_mode = st.radio(
+                "Mode d'affichage",
+                ["Montant (FCFA)", "Poids dans le FCP", "Poids global"],
+                horizontal=True,
+                key="exp_view_mode",
+            )
 
-        elif view_mode == "Poids dans le FCP":
-            fcp_totals = matrix_val.sum(axis=0)
-            matrix_pct = matrix_val.div(fcp_totals, axis=1).fillna(0)
-            formatted = matrix_pct.apply(lambda col: col.map(
-                lambda v: f"{v*100:.1f}%" if v > 0 else "-"
-            ))
-            st.dataframe(formatted, use_container_width=True, height=600)
-            export_df = matrix_pct
+            matrix_val = exp.pivot_table(
+                index="ticker", columns="fcp", values="valorisation",
+                aggfunc="sum", fill_value=0,
+            )
+            matrix_val = matrix_val.loc[global_by_ticker["ticker"].tolist()]
 
-        else:  # Poids global
-            matrix_pct = matrix_val / total_global
-            matrix_pct["TOTAL"] = matrix_pct.sum(axis=1)
-            formatted = matrix_pct.apply(lambda col: col.map(
-                lambda v: f"{v*100:.2f}%" if v > 0 else "-"
-            ))
-            st.dataframe(formatted, use_container_width=True, height=600)
-            export_df = matrix_pct
+            if view_mode == "Montant (FCFA)":
+                matrix_display = matrix_val.copy()
+                matrix_display["TOTAL"] = matrix_display.sum(axis=1)
+                total_row = matrix_display.sum(axis=0)
+                total_row.name = "TOTAL"
+                matrix_display = pd.concat([matrix_display, total_row.to_frame().T])
+                formatted = matrix_display.apply(lambda col: col.map(
+                    lambda v: f"{v:,.0f}".replace(",", " ") if v > 0 else "-"
+                ))
+                st.dataframe(formatted, use_container_width=True, height=600)
+                export_df = matrix_display
 
-        st.download_button(
-            "⬇️ Exporter la matrice (CSV)",
-            data=export_df.to_csv().encode("utf-8"),
-            file_name=f"matrice_expositions_{as_of_ts.date()}.csv",
-            mime="text/csv",
-            key="dl_matrix",
-        )
+            elif view_mode == "Poids dans le FCP":
+                fcp_totals = matrix_val.sum(axis=0)
+                matrix_pct = matrix_val.div(fcp_totals, axis=1).fillna(0)
+                formatted = matrix_pct.apply(lambda col: col.map(
+                    lambda v: f"{v*100:.1f}%" if v > 0 else "-"
+                ))
+                st.dataframe(formatted, use_container_width=True, height=600)
+                export_df = matrix_pct
+
+            else:  # Poids global
+                matrix_pct = matrix_val / total_global
+                matrix_pct["TOTAL"] = matrix_pct.sum(axis=1)
+                formatted = matrix_pct.apply(lambda col: col.map(
+                    lambda v: f"{v*100:.2f}%" if v > 0 else "-"
+                ))
+                st.dataframe(formatted, use_container_width=True, height=600)
+                export_df = matrix_pct
+
+            st.download_button(
+                "⬇️ Exporter la matrice (CSV)",
+                data=export_df.to_csv().encode("utf-8"),
+                file_name=f"matrice_expositions_{as_of_ts.date()}.csv",
+                mime="text/csv",
+                key="dl_matrix",
+            )
 
         st.divider()
 
         # --- Section 3: Concentration par FCP ---
-        st.subheader("Concentration par FCP")
+        st.subheader(
+            "Concentration par FCP"
+            if filtre_fcp == "Tous les FCPs"
+            else f"Concentration — {filtre_fcp}"
+        )
         st.caption(
-            "Poids cumulé des plus grosses positions de chaque FCP. "
+            "Poids cumulé des plus grosses positions. "
             "Permet d'identifier les portefeuilles les plus concentrés."
         )
 
