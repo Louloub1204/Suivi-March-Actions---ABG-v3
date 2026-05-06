@@ -558,3 +558,147 @@ def compute_tracking(
           .drop(columns=["_sort"])
           .reset_index(drop=True))
     return df
+
+
+# ---------------------------------------------------------------------------
+# Action drivers — P&L attribution by stock across all FCPs
+# ---------------------------------------------------------------------------
+
+def compute_action_drivers(
+    transactions: pd.DataFrame,
+    cours: pd.DataFrame,
+    fcps: list[str],
+    as_of_date: pd.Timestamp,
+    dividends_by_fcp: dict[str, dict[str, float]] | None = None,
+) -> pd.DataFrame:
+    """Compute P&L contribution of each stock across all FCPs.
+
+    For each (ticker, fcp) pair that had a non-zero position on as_of_date,
+    compute:
+      - qty_held        : net quantity held (from _qty_before using fcp prev date)
+      - close_prev      : previous reference price (per FCP calendar)
+      - close_today     : today's price
+      - variation_unit  : close_today - close_prev
+      - pnl_contribution: qty_held * variation_unit  (held bucket only)
+      - pnl_period      : P&L from trades in (prev_date, as_of_date]
+      - pnl_total       : pnl_contribution + pnl_period
+
+    Returns a long DataFrame with columns:
+      ticker, fcp, secteur (placeholder),
+      qty_held, close_prev, close_today, variation_unit,
+      valo_today, pnl_contribution, pnl_period, pnl_total,
+      pnl_pct_of_fcp (filled in a second pass)
+    """
+    dividends_by_fcp = dividends_by_fcp or {}
+    as_of_ts = pd.Timestamp(as_of_date)
+
+    rows: list[dict] = []
+
+    for fcp in fcps:
+        positions = compute_positions(transactions, fcp, as_of_ts)
+        if positions.empty:
+            continue
+
+        prev_date = previous_cours_date(fcp, as_of_ts)
+        divs = dividends_by_fcp.get(fcp, {})
+
+        # Pre-filter transactions for this FCP
+        tx_fcp = transactions[transactions["fcp"] == fcp].copy() \
+                 if not transactions.empty else transactions.iloc[0:0]
+
+        # Compute total FCP valuation for % calculation later
+        fcp_pnl_total = 0.0
+
+        fcp_rows = []
+        for _, p in positions.iterrows():
+            ticker = p["ticker"]
+            qte_now = float(p["quantite"])
+            if qte_now <= 0:
+                continue
+
+            close_prev = get_price_on(cours, ticker, prev_date) or 0.0
+            close_today = get_price_on(cours, ticker, as_of_ts) or 0.0
+            div = divs.get(ticker, 0.0)
+            close_today_eff = close_today + div
+            variation_unit = close_today_eff - close_prev
+            valo_today = qte_now * close_today_eff
+
+            # Held bucket
+            qte_held = _qty_before(tx_fcp, fcp, ticker, prev_date)
+            pnl_held = qte_held * variation_unit
+
+            # Period trades bucket
+            period = _period_trades(tx_fcp, fcp, ticker, prev_date, as_of_ts)
+            pnl_period = 0.0
+            for _, t in period.iterrows():
+                qty_t = float(t["quantite"])
+                prix_t = float(t["prix"])
+                frais_t = float(t["frais"])
+                if t["sens"] == "ACHAT":
+                    pnl_period += qty_t * (close_today_eff - prix_t) - frais_t
+                else:
+                    pnl_period += qty_t * (prix_t - close_today_eff) - frais_t
+
+            pnl_total = pnl_held + pnl_period
+            fcp_pnl_total += pnl_total
+
+            fcp_rows.append({
+                "ticker": ticker,
+                "fcp": fcp,
+                "qty_held": qte_held,
+                "qty_now": qte_now,
+                "close_prev": close_prev,
+                "close_today": close_today_eff,
+                "variation_unit": variation_unit,
+                "valo_today": valo_today,
+                "pnl_held": pnl_held,
+                "pnl_period": pnl_period,
+                "pnl_total": pnl_total,
+                "fcp_pnl_total": 0.0,  # filled below
+            })
+
+        # Back-fill fcp_pnl_total
+        for r in fcp_rows:
+            r["fcp_pnl_total"] = fcp_pnl_total
+        rows.extend(fcp_rows)
+
+    if not rows:
+        return pd.DataFrame()
+
+    df = pd.DataFrame(rows)
+
+    # pnl_pct_of_fcp: contribution of this ticker to its FCP's total P&L
+    df["pnl_pct_of_fcp"] = df.apply(
+        lambda r: r["pnl_total"] / r["fcp_pnl_total"]
+        if r["fcp_pnl_total"] != 0 else 0.0,
+        axis=1,
+    )
+
+    return df
+
+
+def aggregate_drivers_by_ticker(drivers: pd.DataFrame) -> pd.DataFrame:
+    """Aggregate the long drivers DataFrame by ticker.
+
+    Returns one row per ticker with:
+      ticker, variation_unit, close_prev, close_today,
+      qty_total (all FCPs), valo_total, pnl_total,
+      n_fcps (number of FCPs holding this ticker),
+      fcp_list (comma-separated list of FCPs)
+    """
+    if drivers.empty:
+        return pd.DataFrame()
+
+    agg = drivers.groupby("ticker").agg(
+        variation_unit=("variation_unit", "first"),
+        close_prev=("close_prev", "first"),
+        close_today=("close_today", "first"),
+        qty_total=("qty_now", "sum"),
+        valo_total=("valo_today", "sum"),
+        pnl_total=("pnl_total", "sum"),
+        n_fcps=("fcp", "nunique"),
+        fcp_list=("fcp", lambda s: ", ".join(sorted(s.unique()))),
+    ).reset_index()
+
+    agg = agg.sort_values("pnl_total", ascending=False).reset_index(drop=True)
+    return agg

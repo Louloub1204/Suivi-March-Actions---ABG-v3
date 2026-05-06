@@ -1,12 +1,12 @@
-"""PDF Analytics Report — Dynamique des FCP — CGF GESTION.
+"""PDF Analytics Report — Drivers de performance par action — CGF GESTION.
 
-White/blue institutional style. Compact 2-3 pages.
-Covers:
-  - Cover page with CGF GESTION logo + institutional header + day KPIs
-  - Section 1: Full FCP recap table (day metrics)
-  - Section 2: P&L catalysts + top contributors
-  - Section 3: Period comparison (day vs selected period)
-  - Section 4: Momentum & trend analysis
+Action-centric perspective:
+  - Which stocks drove P&L (positive and negative)
+  - How each stock's move propagated across FCPs
+  - Sector-level P&L attribution
+  - Per-FCP decomposition of daily variation
+
+Style: White + CGF Blue (#004977) institutional.
 """
 from __future__ import annotations
 
@@ -18,7 +18,7 @@ from reportlab.lib import colors
 from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_RIGHT
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import ParagraphStyle
-from reportlab.lib.units import cm, mm
+from reportlab.lib.units import cm
 from reportlab.platypus import (
     BaseDocTemplate,
     Frame,
@@ -34,135 +34,45 @@ from reportlab.platypus import (
 )
 
 # ---------------------------------------------------------------------------
-# CGF GESTION palette — white & blue
+# Palette
 # ---------------------------------------------------------------------------
-BLUE        = colors.HexColor("#004977")   # CGF brand blue
-BLUE_LIGHT  = colors.HexColor("#E6EFF5")   # light blue tint
-BLUE_MID    = colors.HexColor("#C2D8E8")   # mid blue for borders
-BLUE_DARK   = colors.HexColor("#002F4D")   # dark blue for text
-WHITE       = colors.white
-GREY_LIGHT  = colors.HexColor("#F5F7FA")
-GREY_MID    = colors.HexColor("#D0D8E0")
-BLACK       = colors.HexColor("#1A1A2E")
-GREEN       = colors.HexColor("#1A6B3E")
-RED         = colors.HexColor("#B53A2F")
-GOLD_ACCENT = colors.HexColor("#EF9F27")   # subtle accent for alerts only
+BLUE       = colors.HexColor("#004977")
+BLUE_LIGHT = colors.HexColor("#E6EFF5")
+BLUE_MID   = colors.HexColor("#C2D8E8")
+BLUE_DARK  = colors.HexColor("#002F4D")
+WHITE      = colors.white
+GREY_LIGHT = colors.HexColor("#F5F7FA")
+BLACK      = colors.HexColor("#1A1A2E")
+GREEN      = colors.HexColor("#1A6B3E")
+GREEN_BG   = colors.HexColor("#E8F5EE")
+RED        = colors.HexColor("#B53A2F")
+RED_BG     = colors.HexColor("#FAEAEA")
 
 W, H = A4
 
 LOGO_PATH = Path(__file__).resolve().parent / "seed_data" / "cgf_logo.png"
-INSTITUTION_LINE1 = "Compagnie Générale de Finance et de Gestion S.A."
-INSTITUTION_LINE2 = (
-    "Société de gestion collective au capital de 500 000 000 FCFA  "
-    "·  N° agrément CREPMF SG-003/2001"
-)
+INST1 = "Compagnie Générale de Finance et de Gestion S.A."
+INST2 = ("Société de gestion collective au capital de 500 000 000 FCFA"
+         "  ·  N° agrément CREPMF SG-003/2001")
 
 
 # ---------------------------------------------------------------------------
-# Styles
-# ---------------------------------------------------------------------------
-def _styles() -> dict:
-    return {
-        "inst1": ParagraphStyle(
-            "inst1",
-            fontName="Helvetica-Bold",
-            fontSize=9,
-            textColor=BLUE_DARK,
-            alignment=TA_CENTER,
-            spaceAfter=2,
-        ),
-        "inst2": ParagraphStyle(
-            "inst2",
-            fontName="Helvetica",
-            fontSize=7.5,
-            textColor=colors.HexColor("#4A6A7D"),
-            alignment=TA_CENTER,
-            spaceAfter=0,
-        ),
-        "cover_title": ParagraphStyle(
-            "cover_title",
-            fontName="Helvetica-Bold",
-            fontSize=20,
-            textColor=WHITE,
-            alignment=TA_CENTER,
-            spaceAfter=6,
-        ),
-        "cover_sub": ParagraphStyle(
-            "cover_sub",
-            fontName="Helvetica",
-            fontSize=11,
-            textColor=colors.HexColor("#B8D4E8"),
-            alignment=TA_CENTER,
-            spaceAfter=4,
-        ),
-        "section_title": ParagraphStyle(
-            "section_title",
-            fontName="Helvetica-Bold",
-            fontSize=11,
-            textColor=BLUE,
-            spaceBefore=10,
-            spaceAfter=4,
-        ),
-        "subsection": ParagraphStyle(
-            "subsection",
-            fontName="Helvetica-Bold",
-            fontSize=9,
-            textColor=BLUE_DARK,
-            spaceBefore=6,
-            spaceAfter=3,
-        ),
-        "body": ParagraphStyle(
-            "body",
-            fontName="Helvetica",
-            fontSize=8.5,
-            textColor=BLACK,
-            leading=13,
-            spaceAfter=3,
-        ),
-        "caption": ParagraphStyle(
-            "caption",
-            fontName="Helvetica-Oblique",
-            fontSize=7,
-            textColor=colors.HexColor("#6A8A9D"),
-            spaceAfter=2,
-            alignment=TA_CENTER,
-        ),
-        "kpi_val": ParagraphStyle(
-            "kpi_val",
-            fontName="Helvetica-Bold",
-            fontSize=15,
-            textColor=WHITE,
-            alignment=TA_CENTER,
-        ),
-        "kpi_lbl": ParagraphStyle(
-            "kpi_lbl",
-            fontName="Helvetica",
-            fontSize=6.5,
-            textColor=colors.HexColor("#B8D4E8"),
-            alignment=TA_CENTER,
-        ),
-    }
-
-
-# ---------------------------------------------------------------------------
-# Number formatters
+# Number helpers
 # ---------------------------------------------------------------------------
 def _xof(v, signed: bool = False) -> str:
     try:
         v = float(v)
     except (TypeError, ValueError):
         return "-"
-    if v != v:  # nan
+    if v != v:
         return "-"
     if abs(v) >= 1_000_000_000:
-        s = f"{v/1_000_000_000:,.2f} Md".replace(",", "\u202f")
+        s = f"{v/1_000_000_000:.2f} Md"
     elif abs(v) >= 1_000_000:
-        s = f"{v/1_000_000:,.1f} M".replace(",", "\u202f")
+        s = f"{v/1_000_000:.1f} M"
     else:
-        s = f"{v:,.0f}".replace(",", "\u202f")
-    if signed and v > 0:
-        return f"+{s}"
-    return s
+        s = f"{int(round(v)):,}".replace(",", "\u202f")
+    return (f"+{s}" if signed and v > 0 else s)
 
 
 def _pct(v, signed: bool = False) -> str:
@@ -173,172 +83,185 @@ def _pct(v, signed: bool = False) -> str:
     if v != v:
         return "-"
     s = f"{v * 100:.2f}%"
-    if signed and v > 0:
-        return f"+{s}"
-    return s
+    return (f"+{s}" if signed and v > 0 else s)
+
+
+def _arrow(v) -> str:
+    try:
+        v = float(v)
+        return "▲" if v > 0 else ("▼" if v < 0 else "—")
+    except (TypeError, ValueError):
+        return "—"
+
+
+# ---------------------------------------------------------------------------
+# Styles
+# ---------------------------------------------------------------------------
+def _styles() -> dict:
+    return {
+        "inst1": ParagraphStyle("inst1", fontName="Helvetica-Bold",
+                                fontSize=9, textColor=BLUE_DARK,
+                                alignment=TA_CENTER, spaceAfter=2),
+        "inst2": ParagraphStyle("inst2", fontName="Helvetica",
+                                fontSize=7.5,
+                                textColor=colors.HexColor("#4A6A7D"),
+                                alignment=TA_CENTER),
+        "cover_title": ParagraphStyle("cover_title",
+                                      fontName="Helvetica-Bold",
+                                      fontSize=20, textColor=WHITE,
+                                      alignment=TA_CENTER, spaceAfter=6),
+        "cover_sub": ParagraphStyle("cover_sub", fontName="Helvetica",
+                                    fontSize=11,
+                                    textColor=colors.HexColor("#B8D4E8"),
+                                    alignment=TA_CENTER, spaceAfter=4),
+        "section": ParagraphStyle("section", fontName="Helvetica-Bold",
+                                  fontSize=11, textColor=BLUE,
+                                  spaceBefore=8, spaceAfter=4),
+        "sub": ParagraphStyle("sub", fontName="Helvetica-Bold",
+                               fontSize=9, textColor=BLUE_DARK,
+                               spaceBefore=6, spaceAfter=3),
+        "body": ParagraphStyle("body", fontName="Helvetica",
+                                fontSize=8, textColor=BLACK,
+                                leading=12, spaceAfter=3),
+        "caption": ParagraphStyle("caption", fontName="Helvetica-Oblique",
+                                  fontSize=7,
+                                  textColor=colors.HexColor("#6A8A9D"),
+                                  alignment=TA_CENTER, spaceAfter=2),
+        "kpi_val": ParagraphStyle("kpi_val", fontName="Helvetica-Bold",
+                                  fontSize=14, textColor=WHITE,
+                                  alignment=TA_CENTER),
+        "kpi_lbl": ParagraphStyle("kpi_lbl", fontName="Helvetica",
+                                  fontSize=6.5,
+                                  textColor=colors.HexColor("#B8D4E8"),
+                                  alignment=TA_CENTER),
+    }
 
 
 # ---------------------------------------------------------------------------
 # Page templates
 # ---------------------------------------------------------------------------
 def _build_doc(buf: io.BytesIO) -> BaseDocTemplate:
-    doc = BaseDocTemplate(
-        buf,
-        pagesize=A4,
-        leftMargin=1.6 * cm,
-        rightMargin=1.6 * cm,
-        topMargin=1.2 * cm,
-        bottomMargin=1.8 * cm,
-    )
+    doc = BaseDocTemplate(buf, pagesize=A4,
+                          leftMargin=1.6*cm, rightMargin=1.6*cm,
+                          topMargin=1.0*cm, bottomMargin=1.6*cm)
 
-    # ── Cover background ──
-    def _cover_bg(canvas, doc):
-        canvas.saveState()
-        # Full blue background
-        canvas.setFillColor(BLUE)
-        canvas.rect(0, 0, W, H, fill=1, stroke=0)
-        # White header zone for logo
-        canvas.setFillColor(WHITE)
-        canvas.rect(0, H - 3.8 * cm, W, 3.8 * cm, fill=1, stroke=0)
-        # Thin separator line
-        canvas.setFillColor(BLUE_MID)
-        canvas.rect(0, H - 3.9 * cm, W, 0.15 * cm, fill=1, stroke=0)
-        # Bottom light strip
-        canvas.setFillColor(BLUE_DARK)
-        canvas.rect(0, 0, W, 1.2 * cm, fill=1, stroke=0)
-        canvas.setFont("Helvetica", 7)
-        canvas.setFillColor(colors.HexColor("#6A9ABD"))
-        canvas.drawCentredString(
-            W / 2, 0.42 * cm,
-            "Document confidentiel — Usage interne uniquement"
-        )
-        canvas.restoreState()
+    def _cover_bg(c, d):
+        c.saveState()
+        c.setFillColor(BLUE); c.rect(0, 0, W, H, fill=1, stroke=0)
+        c.setFillColor(WHITE); c.rect(0, H-3.6*cm, W, 3.6*cm, fill=1, stroke=0)
+        c.setFillColor(BLUE_MID); c.rect(0, H-3.7*cm, W, .12*cm, fill=1, stroke=0)
+        c.setFillColor(BLUE_DARK); c.rect(0, 0, W, 1.1*cm, fill=1, stroke=0)
+        c.setFont("Helvetica", 6.5)
+        c.setFillColor(colors.HexColor("#6A9ABD"))
+        c.drawCentredString(W/2, .38*cm,
+                            "Document confidentiel — Usage interne uniquement")
+        c.restoreState()
 
-    # ── Content page background ──
-    def _page_bg(canvas, doc):
-        canvas.saveState()
-        # White background
-        canvas.setFillColor(WHITE)
-        canvas.rect(0, 0, W, H, fill=1, stroke=0)
-        # White header zone
-        canvas.setFillColor(WHITE)
-        canvas.rect(0, H - 3.2 * cm, W, 3.2 * cm, fill=1, stroke=0)
-        # Blue accent line under header
-        canvas.setFillColor(BLUE)
-        canvas.rect(0, H - 3.25 * cm, W, 0.18 * cm, fill=1, stroke=0)
-        # Light blue left margin accent
-        canvas.setFillColor(BLUE_LIGHT)
-        canvas.rect(0, 0, 0.4 * cm, H - 3.3 * cm, fill=1, stroke=0)
-        # Footer
-        canvas.setFillColor(BLUE)
-        canvas.rect(0, 0, W, 1.0 * cm, fill=1, stroke=0)
-        canvas.setFont("Helvetica", 6.5)
-        canvas.setFillColor(colors.HexColor("#B8D4E8"))
-        canvas.drawString(1.6 * cm, 0.35 * cm,
-                          INSTITUTION_LINE1)
-        canvas.drawRightString(W - 1.6 * cm, 0.35 * cm,
-                               f"Page {doc.page}")
-        canvas.restoreState()
+    def _page_bg(c, d):
+        c.saveState()
+        c.setFillColor(WHITE); c.rect(0, 0, W, H, fill=1, stroke=0)
+        c.setFillColor(WHITE); c.rect(0, H-3.0*cm, W, 3.0*cm, fill=1, stroke=0)
+        c.setFillColor(BLUE); c.rect(0, H-3.05*cm, W, .18*cm, fill=1, stroke=0)
+        c.setFillColor(BLUE_LIGHT); c.rect(0, 0, .35*cm, H-3.1*cm, fill=1, stroke=0)
+        c.setFillColor(BLUE); c.rect(0, 0, W, .95*cm, fill=1, stroke=0)
+        c.setFont("Helvetica", 6.5)
+        c.setFillColor(colors.HexColor("#B8D4E8"))
+        c.drawString(1.6*cm, .33*cm, INST1)
+        c.drawRightString(W-1.6*cm, .33*cm, f"Page {d.page}")
+        c.restoreState()
 
-    cover_frame = Frame(
-        1.6*cm, 1.5*cm, W - 3.2*cm, H - 5*cm,
-        id="cover_frame",
-    )
-    content_frame = Frame(
-        1.8*cm, 1.3*cm, W - 3.4*cm, H - 5*cm,
-        id="content_frame",
-    )
+    cover_f  = Frame(1.6*cm, 1.4*cm, W-3.2*cm, H-4.8*cm, id="cover")
+    content_f = Frame(1.8*cm, 1.2*cm, W-3.4*cm, H-4.6*cm, id="content")
 
     doc.addPageTemplates([
-        PageTemplate(id="cover",   frames=[cover_frame],   onPage=_cover_bg),
-        PageTemplate(id="content", frames=[content_frame], onPage=_page_bg),
+        PageTemplate(id="cover",   frames=[cover_f],   onPage=_cover_bg),
+        PageTemplate(id="content", frames=[content_f], onPage=_page_bg),
     ])
     return doc
 
 
 # ---------------------------------------------------------------------------
-# Header block (logo + institution text)
+# Reusable header block
 # ---------------------------------------------------------------------------
-def _header_block(styles: dict) -> list:
+def _header(styles: dict) -> list:
     items = []
     if LOGO_PATH.exists():
-        # Logo: scale to ~180pt wide maintaining aspect ratio (911x60)
-        logo_w = 180
-        logo_h = int(logo_w * 60 / 911)
-        logo = Image(str(LOGO_PATH), width=logo_w, height=logo_h)
-        logo.hAlign = "CENTER"
-        items.append(logo)
-        items.append(Spacer(1, 4))
-    items.append(Paragraph(INSTITUTION_LINE1, styles["inst1"]))
-    items.append(Paragraph(INSTITUTION_LINE2, styles["inst2"]))
+        lw, lh = 170, int(170 * 60 / 911)
+        img = Image(str(LOGO_PATH), width=lw, height=lh)
+        img.hAlign = "CENTER"
+        items.append(img)
+        items.append(Spacer(1, 3))
+    items.append(Paragraph(INST1, styles["inst1"]))
+    items.append(Paragraph(INST2, styles["inst2"]))
     return items
+
+
+# ---------------------------------------------------------------------------
+# Standard table style helper
+# ---------------------------------------------------------------------------
+def _base_ts(header_bg=None, col_w=None) -> list:
+    hb = header_bg or BLUE
+    ht = WHITE if hb == BLUE else BLUE
+    return [
+        ("BACKGROUND",    (0, 0), (-1, 0), hb),
+        ("TEXTCOLOR",     (0, 0), (-1, 0), ht),
+        ("FONTNAME",      (0, 0), (-1, 0), "Helvetica-Bold"),
+        ("FONTSIZE",      (0, 0), (-1, -1), 7.5),
+        ("TOPPADDING",    (0, 0), (-1, -1), 3),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
+        ("ALIGN",         (0, 0), (0, -1), "LEFT"),
+        ("ALIGN",         (1, 0), (-1, -1), "RIGHT"),
+        ("ROWBACKGROUNDS",(0, 1), (-1, -1), [WHITE, BLUE_LIGHT]),
+        ("LINEBELOW",     (0, 0), (-1, 0), 1.2, BLUE),
+        ("LINEBELOW",     (0, 1), (-1, -2), 0.3, BLUE_MID),
+        ("BOX",           (0, 0), (-1, -1), 0.5, BLUE_MID),
+        ("TEXTCOLOR",     (0, 1), (-1, -1), BLACK),
+    ]
 
 
 # ---------------------------------------------------------------------------
 # Cover page
 # ---------------------------------------------------------------------------
-def _cover_section(
-    as_of,
-    period_label: str,
-    total_valo: float,
-    var_jour: float,
-    var_jour_pct: float,
-    n_fcps: int,
-    styles: dict,
-) -> list:
-    items = []
-
-    # Header zone (logo on white)
-    items += _header_block(styles)
-    items.append(Spacer(1, 2.5 * cm))
-
-    # Title
-    items.append(Paragraph("RAPPORT ANALYTICS", styles["cover_title"]))
+def _cover(as_of, total_pnl, total_valo, n_movers, n_fcps, styles):
+    s = styles
+    items = _header(s)
+    items.append(Spacer(1, 2.2*cm))
+    items.append(Paragraph("RAPPORT ANALYTICS", s["cover_title"]))
     items.append(Paragraph(
-        "Dynamique des Fonds Communs de Placement — BRVM",
-        styles["cover_sub"],
+        "Analyse des Drivers de Performance — Actions BRVM",
+        s["cover_sub"],
     ))
     items.append(Paragraph(
-        f"Séance du {pd.Timestamp(as_of).strftime('%d %B %Y').upper()}"
-        + (f"  ·  Période : {period_label}" if period_label else ""),
-        styles["cover_sub"],
+        f"Séance du {pd.Timestamp(as_of).strftime('%d %B %Y').upper()}",
+        s["cover_sub"],
     ))
-    items.append(Spacer(1, 1.0 * cm))
+    items.append(Spacer(1, 0.8*cm))
 
-    # KPI row
+    c_pnl = colors.HexColor("#90EE90") if total_pnl >= 0 \
+            else colors.HexColor("#FF9999")
     kpi_data = [
         [
-            Paragraph(_xof(total_valo), styles["kpi_val"]),
-            Paragraph(
-                _xof(var_jour, signed=True),
-                ParagraphStyle("kv_j", parent=styles["kpi_val"],
-                               textColor=colors.HexColor("#90EE90") if var_jour >= 0
-                               else colors.HexColor("#FF9999")),
-            ),
-            Paragraph(
-                _pct(var_jour_pct, signed=True),
-                ParagraphStyle("kv_p", parent=styles["kpi_val"],
-                               textColor=colors.HexColor("#90EE90") if var_jour >= 0
-                               else colors.HexColor("#FF9999")),
-            ),
-            Paragraph(str(n_fcps), styles["kpi_val"]),
+            Paragraph(_xof(total_valo), s["kpi_val"]),
+            Paragraph(_xof(total_pnl, signed=True),
+                      ParagraphStyle("kv", parent=s["kpi_val"],
+                                     textColor=c_pnl)),
+            Paragraph(str(n_movers), s["kpi_val"]),
+            Paragraph(str(n_fcps), s["kpi_val"]),
         ],
         [
-            Paragraph("Valorisation totale (FCFA)", styles["kpi_lbl"]),
-            Paragraph("Variation journalière (FCFA)", styles["kpi_lbl"]),
-            Paragraph("Variation journalière (%)", styles["kpi_lbl"]),
-            Paragraph("FCPs actifs", styles["kpi_lbl"]),
+            Paragraph("Valorisation globale (FCFA)", s["kpi_lbl"]),
+            Paragraph("P&L journalier (FCFA)", s["kpi_lbl"]),
+            Paragraph("Actions ayant bougé", s["kpi_lbl"]),
+            Paragraph("FCPs impactés", s["kpi_lbl"]),
         ],
     ]
-    kpi_tbl = Table(
-        kpi_data,
-        colWidths=[(W - 3.2 * cm) / 4] * 4,
-        rowHeights=[1.3 * cm, 0.5 * cm],
-    )
+    kpi_tbl = Table(kpi_data,
+                    colWidths=[(W-3.2*cm)/4]*4,
+                    rowHeights=[1.2*cm, .5*cm])
     kpi_tbl.setStyle(TableStyle([
         ("BACKGROUND",    (0, 0), (-1, -1), BLUE_DARK),
         ("BOX",           (0, 0), (-1, -1), 1, colors.HexColor("#6A9ABD")),
-        ("LINEAFTER",     (0, 0), (2, 1),   0.5, colors.HexColor("#1A5070")),
+        ("LINEAFTER",     (0, 0), (2, 1),   .5, colors.HexColor("#1A5070")),
         ("TOPPADDING",    (0, 0), (-1, -1), 10),
         ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
         ("VALIGN",        (0, 0), (-1, -1), "MIDDLE"),
@@ -350,375 +273,299 @@ def _cover_section(
 
 
 # ---------------------------------------------------------------------------
-# Section 1 — Recap table
+# Section 1 — Top drivers (positive + negative)
 # ---------------------------------------------------------------------------
-def _recap_table_section(recap: pd.DataFrame, styles: dict) -> list:
-    items = _header_block(styles)
-    items.append(Spacer(1, 0.3 * cm))
+def _drivers_section(by_ticker: pd.DataFrame, styles: dict) -> list:
+    items = _header(styles)
+    items.append(Spacer(1, .25*cm))
     items.append(Paragraph(
-        "1. Récapitulatif des performances par FCP",
-        styles["section_title"],
+        "1. Actions ayant drivé la performance du jour",
+        styles["section"],
     ))
-    items.append(HRFlowable(
-        width="100%", thickness=1.5, color=BLUE, spaceAfter=5
+    items.append(HRFlowable(width="100%", thickness=1.5,
+                             color=BLUE, spaceAfter=4))
+    items.append(Paragraph(
+        "Classement par contribution au P&L global. "
+        "La contribution = Σ (quantités détenues × variation de cours) "
+        "sur l'ensemble des FCPs exposés à ce titre.",
+        styles["body"],
     ))
+    items.append(Spacer(1, .2*cm))
+
+    # Positive drivers
+    items.append(Paragraph("Principaux drivers positifs", styles["sub"]))
+    pos = by_ticker[by_ticker["pnl_total"] > 0].head(10)
+    items.append(_drivers_table(pos, positive=True))
+
+    items.append(Spacer(1, .3*cm))
+    items.append(Paragraph("Principaux drivers négatifs", styles["sub"]))
+    neg = by_ticker[by_ticker["pnl_total"] < 0].tail(10)
+    items.append(_drivers_table(neg, positive=False))
+
+    return items
+
+
+def _drivers_table(df: pd.DataFrame, positive: bool) -> Table:
+    accent = GREEN if positive else RED
+    accent_bg = GREEN_BG if positive else RED_BG
 
     headers = [
-        "FCP", "Valorisation", "Var. jour", "Var. j %",
-        "Var. YTD", "Var. YTD %", "Valo déb. année",
+        "Symbole", "Variation cours", "Cours veille",
+        "Cours jour", "Qté totale", "Contribution P&L",
+        "FCPs exposés",
     ]
-    col_w = [5.2*cm, 3.0*cm, 2.6*cm, 1.7*cm, 2.6*cm, 1.7*cm, 3.0*cm]
-
+    col_w = [2.0*cm, 2.4*cm, 2.4*cm, 2.4*cm, 2.2*cm, 3.2*cm, 1.8*cm]
     rows = [headers]
-    style_cmds = [
-        ("BACKGROUND",    (0, 0), (-1, 0), BLUE),
-        ("TEXTCOLOR",     (0, 0), (-1, 0), WHITE),
-        ("FONTNAME",      (0, 0), (-1, 0), "Helvetica-Bold"),
-        ("FONTSIZE",      (0, 0), (-1, 0), 7.5),
-        ("TOPPADDING",    (0, 0), (-1, 0), 5),
-        ("BOTTOMPADDING", (0, 0), (-1, 0), 5),
-        ("FONTNAME",      (0, 1), (-1, -1), "Helvetica"),
-        ("FONTSIZE",      (0, 1), (-1, -1), 7.5),
-        ("TOPPADDING",    (0, 1), (-1, -1), 3),
-        ("BOTTOMPADDING", (0, 1), (-1, -1), 3),
-        ("TEXTCOLOR",     (0, 1), (-1, -1), BLACK),
-        ("ALIGN",         (1, 0), (-1, -1), "RIGHT"),
-        ("ALIGN",         (0, 0), (0, -1), "LEFT"),
-        ("ROWBACKGROUNDS",(0, 1), (-1, -1), [WHITE, BLUE_LIGHT]),
-        ("LINEBELOW",     (0, 0), (-1, 0), 1.5, BLUE),
-        ("LINEBELOW",     (0, 1), (-1, -2), 0.3, BLUE_MID),
-        ("BOX",           (0, 0), (-1, -1), 0.5, BLUE_MID),
+    style_cmds = _base_ts()
+    style_cmds += [
+        ("ALIGN", (4, 0), (5, -1), "RIGHT"),
+        ("ALIGN", (6, 0), (6, -1), "CENTER"),
     ]
 
-    for i, (_, row) in enumerate(recap.iterrows(), start=1):
-        v_j = float(row.get("Var. jour", 0) or 0)
-        v_y = float(row.get("Var. YTD",  0) or 0)
+    if df.empty:
+        rows.append(["Aucun", "-", "-", "-", "-", "-", "-"])
+    else:
+        for i, (_, r) in enumerate(df.iterrows(), 1):
+            vunit = float(r.get("variation_unit", 0) or 0)
+            pnl   = float(r.get("pnl_total", 0) or 0)
+            rows.append([
+                r["ticker"],
+                f"{_arrow(vunit)} {_xof(vunit, signed=True)} FCFA",
+                _xof(r.get("close_prev")),
+                _xof(r.get("close_today")),
+                f"{r.get('qty_total', 0):,.0f}".replace(",", "\u202f"),
+                _xof(pnl, signed=True),
+                str(int(r.get("n_fcps", 1))),
+            ])
+            bg = accent_bg if i % 2 == 0 else WHITE
+            style_cmds += [
+                ("BACKGROUND", (0, i), (-1, i), bg),
+                ("TEXTCOLOR",  (1, i), (1,  i), accent),
+                ("FONTNAME",   (1, i), (1,  i), "Helvetica-Bold"),
+                ("TEXTCOLOR",  (5, i), (5,  i), accent),
+                ("FONTNAME",   (5, i), (5,  i), "Helvetica-Bold"),
+            ]
+
+    tbl = Table(rows, colWidths=col_w, repeatRows=1)
+    tbl.setStyle(TableStyle(style_cmds))
+    return tbl
+
+
+# ---------------------------------------------------------------------------
+# Section 2 — Action → FCP contribution matrix
+# ---------------------------------------------------------------------------
+def _action_fcp_section(drivers: pd.DataFrame,
+                        by_ticker: pd.DataFrame,
+                        styles: dict) -> list:
+    items = []
+    items.append(Spacer(1, .3*cm))
+    items.append(Paragraph(
+        "2. Propagation par FCP — Contribution action → portefeuille",
+        styles["section"],
+    ))
+    items.append(HRFlowable(width="100%", thickness=1.5,
+                             color=BLUE, spaceAfter=4))
+    items.append(Paragraph(
+        "Pour chaque action significative, détail de la contribution "
+        "au P&L de chaque FCP exposé (en FCFA et en % du P&L du FCP).",
+        styles["body"],
+    ))
+    items.append(Spacer(1, .2*cm))
+
+    # Keep top 10 movers by absolute P&L
+    top_tickers = (
+        by_ticker.assign(_abs=by_ticker["pnl_total"].abs())
+        .nlargest(10, "_abs")["ticker"]
+        .tolist()
+    )
+
+    for ticker in top_tickers:
+        rows_t = drivers[drivers["ticker"] == ticker].copy()
+        rows_t = rows_t[rows_t["pnl_total"] != 0].sort_values(
+            "pnl_total", ascending=False
+        )
+        if rows_t.empty:
+            continue
+
+        vunit = float(rows_t["variation_unit"].iloc[0])
+        total_pnl_ticker = float(rows_t["pnl_total"].sum())
+        c = GREEN if total_pnl_ticker >= 0 else RED
+
+        items.append(Paragraph(
+            f"● {ticker}   —   "
+            f"Variation : {_arrow(vunit)} {_xof(vunit, signed=True)} FCFA   |   "
+            f"Contribution totale : {_xof(total_pnl_ticker, signed=True)} FCFA",
+            ParagraphStyle("th", parent=styles["sub"],
+                           textColor=c, spaceBefore=5),
+        ))
+
+        tbl_data = [["FCP", "Qté détenue", "P&L FCFA", "% du P&L du FCP"]]
+        ts = _base_ts(header_bg=BLUE_LIGHT)
+        for j, (_, rr) in enumerate(rows_t.iterrows(), 1):
+            pnl_r = float(rr["pnl_total"])
+            pnl_fcp_pct = float(rr.get("pnl_pct_of_fcp", 0) or 0)
+            tbl_data.append([
+                rr["fcp"],
+                f"{rr['qty_now']:,.0f}".replace(",", "\u202f"),
+                _xof(pnl_r, signed=True),
+                _pct(pnl_fcp_pct, signed=True),
+            ])
+            c_row = GREEN if pnl_r >= 0 else RED
+            ts += [
+                ("TEXTCOLOR", (2, j), (3, j), c_row),
+                ("FONTNAME",  (2, j), (3, j), "Helvetica-Bold"),
+            ]
+
+        cw = [7*cm, 2.8*cm, 3.5*cm, 2.7*cm]
+        tbl = Table(tbl_data, colWidths=cw)
+        tbl.setStyle(TableStyle(ts))
+        items.append(tbl)
+
+    return items
+
+
+# ---------------------------------------------------------------------------
+# Section 3 — Sector P&L attribution
+# ---------------------------------------------------------------------------
+def _sector_section(drivers: pd.DataFrame,
+                    sectors_map: dict[str, str],
+                    styles: dict) -> list:
+    items = []
+    items.append(Spacer(1, .3*cm))
+    items.append(Paragraph(
+        "3. Contribution sectorielle au P&L",
+        styles["section"],
+    ))
+    items.append(HRFlowable(width="100%", thickness=1.5,
+                             color=BLUE, spaceAfter=4))
+
+    df = drivers.copy()
+    df["secteur"] = df["ticker"].map(
+        lambda t: sectors_map.get(t.strip().upper(), "Non classé")
+    )
+    sec = (
+        df.groupby("secteur")
+        .agg(
+            pnl_total=("pnl_total", "sum"),
+            valo_total=("valo_today", "sum"),
+            n_tickers=("ticker", "nunique"),
+        )
+        .reset_index()
+        .sort_values("pnl_total", ascending=False)
+    )
+    grand_pnl = float(sec["pnl_total"].sum())
+
+    headers = ["Secteur", "P&L (FCFA)", "% du P&L global",
+               "Valorisation", "Nb titres"]
+    col_w = [6*cm, 3.2*cm, 2.8*cm, 3.5*cm, 1.5*cm]
+    rows = [headers]
+    ts = _base_ts()
+    for i, (_, r) in enumerate(sec.iterrows(), 1):
+        pnl_s = float(r["pnl_total"])
+        pct_g = pnl_s / grand_pnl if grand_pnl else 0
         rows.append([
-            row["FCP"],
-            _xof(row.get("Valorisation")),
-            _xof(v_j, signed=True),
-            _pct(row.get("Var. jour %"), signed=True),
-            _xof(v_y, signed=True),
-            _pct(row.get("Var. YTD %"), signed=True),
-            _xof(row.get("Valo début année")),
+            r["secteur"],
+            _xof(pnl_s, signed=True),
+            _pct(pct_g, signed=True),
+            _xof(r["valo_total"]),
+            str(int(r["n_tickers"])),
         ])
-        c_j = GREEN if v_j > 0 else (RED if v_j < 0 else BLACK)
-        c_y = GREEN if v_y > 0 else (RED if v_y < 0 else BLACK)
-        fn  = "Helvetica-Bold"
-        style_cmds += [
-            ("TEXTCOLOR", (2, i), (3, i), c_j),
-            ("FONTNAME",  (2, i), (3, i), fn if v_j != 0 else "Helvetica"),
-            ("TEXTCOLOR", (4, i), (5, i), c_y),
-            ("FONTNAME",  (4, i), (5, i), fn if v_y != 0 else "Helvetica"),
+        c = GREEN if pnl_s >= 0 else RED
+        ts += [
+            ("TEXTCOLOR", (1, i), (2, i), c),
+            ("FONTNAME",  (1, i), (2, i), "Helvetica-Bold"),
         ]
 
     tbl = Table(rows, colWidths=col_w, repeatRows=1)
-    tbl.setStyle(TableStyle(style_cmds))
+    tbl.setStyle(TableStyle(ts))
     items.append(tbl)
     return items
 
 
 # ---------------------------------------------------------------------------
-# Section 2 — P&L catalysts
+# Section 4 — Per-FCP decomposition
 # ---------------------------------------------------------------------------
-def _catalysts_section(
-    recap: pd.DataFrame,
-    exposures,
-    styles: dict,
-) -> list:
+def _fcp_decomp_section(drivers: pd.DataFrame, styles: dict) -> list:
     items = []
-    items.append(Spacer(1, 0.4 * cm))
+    items.append(Spacer(1, .3*cm))
     items.append(Paragraph(
-        "2. Catalyseurs du P&L journalier",
-        styles["section_title"],
+        "4. Décomposition du P&L journalier par FCP",
+        styles["section"],
     ))
-    items.append(HRFlowable(
-        width="100%", thickness=1.5, color=BLUE, spaceAfter=5
-    ))
-
-    recap = recap.copy()
-    recap["_vj"] = pd.to_numeric(
-        recap.get("Var. jour", 0), errors="coerce"
-    ).fillna(0)
-
-    # Top 5 positive
+    items.append(HRFlowable(width="100%", thickness=1.5,
+                             color=BLUE, spaceAfter=4))
     items.append(Paragraph(
-        "Top 5 contributeurs positifs", styles["subsection"]
+        "Pour chaque FCP, les 3 principales actions ayant contribué "
+        "(positivement ou négativement) à la variation du jour.",
+        styles["body"],
     ))
-    _contrib_tbl(recap.nlargest(5, "_vj"), positive=True, items=items)
+    items.append(Spacer(1, .15*cm))
 
-    items.append(Spacer(1, 0.25 * cm))
-    items.append(Paragraph(
-        "Top 5 contributeurs négatifs", styles["subsection"]
-    ))
-    _contrib_tbl(recap.nsmallest(5, "_vj"), positive=False, items=items)
+    fcp_pnl = (
+        drivers.groupby("fcp")["pnl_total"].sum()
+        .sort_values(ascending=False)
+    )
 
-    # Sector breakdown
-    if (
-        exposures is not None
-        and not exposures.empty
-        and "secteur" in exposures.columns
-    ):
-        items.append(Spacer(1, 0.3 * cm))
-        items.append(Paragraph(
-            "Répartition sectorielle globale", styles["subsection"]
-        ))
-        sec = (
-            exposures.groupby("secteur")["valorisation"]
-            .sum()
-            .sort_values(ascending=False)
-            .reset_index()
+    # Two-column layout for FCPs
+    left_items: list = []
+    right_items: list = []
+    fcp_list = list(fcp_pnl.index)
+
+    for idx, fcp_name in enumerate(fcp_list):
+        fcp_rows = (
+            drivers[drivers["fcp"] == fcp_name]
+            .assign(_abs=lambda d: d["pnl_total"].abs())
+            .nlargest(3, "_abs")
         )
-        total_s = float(sec["valorisation"].sum())
-        sec_data = [["Secteur", "Valorisation (FCFA)", "Poids"]]
-        for _, r in sec.iterrows():
-            sec_data.append([
-                r["secteur"],
-                _xof(r["valorisation"]),
-                _pct(r["valorisation"] / total_s if total_s else 0),
+        total_fcp = float(fcp_pnl.get(fcp_name, 0))
+        c = GREEN if total_fcp >= 0 else RED
+
+        block = []
+        block.append(Paragraph(
+            f"{fcp_name}   {_arrow(total_fcp)}  "
+            f"{_xof(total_fcp, signed=True)} FCFA",
+            ParagraphStyle("fb", parent=styles["sub"],
+                           textColor=c, spaceBefore=6),
+        ))
+        td = [["Titre", "Contribution", "% du FCP"]]
+        ts = _base_ts(header_bg=BLUE_LIGHT)
+        for j, (_, r) in enumerate(fcp_rows.iterrows(), 1):
+            pnl_r = float(r["pnl_total"])
+            pct_r = float(r.get("pnl_pct_of_fcp", 0) or 0)
+            td.append([
+                r["ticker"],
+                _xof(pnl_r, signed=True),
+                _pct(pct_r, signed=True),
             ])
-        st_tbl = Table(sec_data, colWidths=[8*cm, 4.5*cm, 3*cm])
-        st_tbl.setStyle(TableStyle([
-            ("BACKGROUND",    (0, 0), (-1, 0), BLUE),
-            ("TEXTCOLOR",     (0, 0), (-1, 0), WHITE),
-            ("FONTNAME",      (0, 0), (-1, 0), "Helvetica-Bold"),
-            ("FONTSIZE",      (0, 0), (-1, -1), 8),
-            ("TOPPADDING",    (0, 0), (-1, -1), 3),
-            ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
-            ("ALIGN",         (1, 0), (-1, -1), "RIGHT"),
-            ("ROWBACKGROUNDS",(0, 1), (-1, -1), [WHITE, BLUE_LIGHT]),
-            ("LINEBELOW",     (0, 0), (-1, 0), 1, BLUE),
-            ("BOX",           (0, 0), (-1, -1), 0.5, BLUE_MID),
-        ]))
-        items.append(st_tbl)
-    return items
-
-
-def _contrib_tbl(df: pd.DataFrame, positive: bool, items: list) -> None:
-    c = GREEN if positive else RED
-    col_w = [5.5*cm, 3.2*cm, 2.5*cm, 3.2*cm, 1.5*cm]
-    headers = ["FCP", "Var. jour (FCFA)", "Var. j %",
-               "Valorisation", "Rang"]
-    rows = [headers]
-    for rank, (_, row) in enumerate(df.iterrows(), 1):
-        vj = float(row.get("_vj", 0) or 0)
-        rows.append([
-            row["FCP"],
-            _xof(vj, signed=True),
-            _pct(row.get("Var. jour %"), signed=True),
-            _xof(row.get("Valorisation")),
-            str(rank),
-        ])
-    tbl = Table(rows, colWidths=col_w)
-    tbl.setStyle(TableStyle([
-        ("BACKGROUND",    (0, 0), (-1, 0), BLUE_LIGHT),
-        ("TEXTCOLOR",     (0, 0), (-1, 0), BLUE),
-        ("FONTNAME",      (0, 0), (-1, 0), "Helvetica-Bold"),
-        ("FONTSIZE",      (0, 0), (-1, -1), 7.5),
-        ("TOPPADDING",    (0, 0), (-1, -1), 3),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
-        ("ALIGN",         (1, 0), (-1, -1), "RIGHT"),
-        ("ALIGN",         (4, 0), (4, -1), "CENTER"),
-        ("ROWBACKGROUNDS",(0, 1), (-1, -1), [WHITE, BLUE_LIGHT]),
-        ("LINEBELOW",     (0, 0), (-1, 0), 1, c),
-        ("TEXTCOLOR",     (1, 1), (2, -1), c),
-        ("FONTNAME",      (1, 1), (2, -1), "Helvetica-Bold"),
-        ("BOX",           (0, 0), (-1, -1), 0.5, BLUE_MID),
-    ]))
-    items.append(tbl)
-
-
-# ---------------------------------------------------------------------------
-# Section 3 — Period comparison
-# ---------------------------------------------------------------------------
-def _period_section(
-    recap_today: pd.DataFrame,
-    recap_period: pd.DataFrame | None,
-    period_label: str,
-    styles: dict,
-) -> list:
-    items = []
-    items.append(Spacer(1, 0.4 * cm))
-    items.append(Paragraph(
-        f"3. Comparaison sur la période ({period_label})",
-        styles["section_title"],
-    ))
-    items.append(HRFlowable(
-        width="100%", thickness=1.5, color=BLUE, spaceAfter=5
-    ))
-
-    if recap_period is None or recap_period.empty:
-        items.append(Paragraph(
-            "Données de comparaison non disponibles pour cette période.",
-            styles["body"],
-        ))
-        return items
-
-    # Merge today vs period
-    merged = recap_today[["FCP","Valorisation","Var. jour"]].copy()
-    merged = merged.rename(columns={
-        "Valorisation": "Valo aujourd'hui",
-        "Var. jour":    "Var. jour",
-    })
-
-    p_valo = recap_period.set_index("FCP")["Valorisation"].rename("Valo période")
-    p_ytd  = recap_period.set_index("FCP").get("Var. YTD", pd.Series(dtype=float))
-    merged = merged.set_index("FCP").join(p_valo, how="left").reset_index()
-
-    # Evolution = today - period start
-    merged["Evolution"] = (
-        pd.to_numeric(merged["Valo aujourd'hui"], errors="coerce") -
-        pd.to_numeric(merged["Valo période"], errors="coerce")
-    )
-    merged["Evol %"] = (
-        merged["Evolution"] /
-        pd.to_numeric(merged["Valo période"], errors="coerce").replace(0, float("nan"))
-    )
-
-    col_w = [5.2*cm, 3.2*cm, 3.2*cm, 3.0*cm, 2.2*cm]
-    headers = ["FCP", "Valo aujourd'hui", f"Valo déb. période",
-               "Évolution", "Évol. %"]
-    rows = [headers]
-    style_cmds = [
-        ("BACKGROUND",    (0, 0), (-1, 0), BLUE),
-        ("TEXTCOLOR",     (0, 0), (-1, 0), WHITE),
-        ("FONTNAME",      (0, 0), (-1, 0), "Helvetica-Bold"),
-        ("FONTSIZE",      (0, 0), (-1, -1), 7.5),
-        ("TOPPADDING",    (0, 0), (-1, -1), 3),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
-        ("ALIGN",         (1, 0), (-1, -1), "RIGHT"),
-        ("ALIGN",         (0, 0), (0, -1), "LEFT"),
-        ("ROWBACKGROUNDS",(0, 1), (-1, -1), [WHITE, BLUE_LIGHT]),
-        ("LINEBELOW",     (0, 0), (-1, 0), 1.5, BLUE),
-        ("BOX",           (0, 0), (-1, -1), 0.5, BLUE_MID),
-    ]
-    for i, (_, r) in enumerate(merged.iterrows(), start=1):
-        evol = r.get("Evolution")
-        ep   = r.get("Evol %")
-        rows.append([
-            r["FCP"],
-            _xof(r.get("Valo aujourd'hui")),
-            _xof(r.get("Valo période")),
-            _xof(evol, signed=True) if pd.notna(evol) else "-",
-            _pct(ep, signed=True)   if pd.notna(ep) else "-",
-        ])
-        try:
-            ev_f = float(evol)
-            c = GREEN if ev_f > 0 else (RED if ev_f < 0 else BLACK)
-            style_cmds += [
-                ("TEXTCOLOR", (3, i), (4, i), c),
-                ("FONTNAME",  (3, i), (4, i),
-                 "Helvetica-Bold" if ev_f != 0 else "Helvetica"),
+            cr = GREEN if pnl_r >= 0 else RED
+            ts += [
+                ("TEXTCOLOR", (1, j), (2, j), cr),
+                ("FONTNAME",  (1, j), (2, j), "Helvetica-Bold"),
             ]
-        except (TypeError, ValueError):
-            pass
+        t = Table(td, colWidths=[4*cm, 3*cm, 2.5*cm])
+        t.setStyle(TableStyle(ts))
+        block.append(t)
 
-    tbl = Table(rows, colWidths=col_w, repeatRows=1)
-    tbl.setStyle(TableStyle(style_cmds))
-    items.append(tbl)
-    return items
+        if idx % 2 == 0:
+            left_items.extend(block)
+        else:
+            right_items.extend(block)
 
+    # Pad shorter column
+    while len(right_items) < len(left_items):
+        right_items.append(Spacer(1, 1))
 
-# ---------------------------------------------------------------------------
-# Section 4 — Momentum
-# ---------------------------------------------------------------------------
-def _momentum_section(recap: pd.DataFrame, styles: dict) -> list:
-    items = []
-    items.append(Spacer(1, 0.4 * cm))
-    items.append(Paragraph(
-        "4. Tendances et momentum", styles["section_title"]
-    ))
-    items.append(HRFlowable(
-        width="100%", thickness=1.5, color=BLUE, spaceAfter=5
-    ))
-
-    r = recap.copy()
-    r["_vj"]   = pd.to_numeric(r.get("Var. jour", 0), errors="coerce").fillna(0)
-    r["_vytd"] = pd.to_numeric(r.get("Var. YTD",  0), errors="coerce").fillna(0)
-    r["_valo"] = pd.to_numeric(r.get("Valorisation", 0), errors="coerce").fillna(0)
-
-    rows = [
-        ["Indicateur", "Nb FCPs", "Valorisation concernée (FCFA)"],
-        ["Hausse aujourd'hui",
-         str(len(r[r["_vj"] > 0])),
-         _xof(r[r["_vj"] > 0]["_valo"].sum())],
-        ["Baisse aujourd'hui",
-         str(len(r[r["_vj"] < 0])),
-         _xof(r[r["_vj"] < 0]["_valo"].sum())],
-        ["Hausse YTD",
-         str(len(r[r["_vytd"] > 0])),
-         _xof(r[r["_vytd"] > 0]["_valo"].sum())],
-        ["Baisse YTD",
-         str(len(r[r["_vytd"] < 0])),
-         _xof(r[r["_vytd"] < 0]["_valo"].sum())],
-        ["Double momentum positif (jour & YTD)",
-         str(len(r[(r["_vj"] > 0) & (r["_vytd"] > 0)])),
-         _xof(r[(r["_vj"] > 0) & (r["_vytd"] > 0)]["_valo"].sum())],
-        ["Double momentum négatif (jour & YTD)",
-         str(len(r[(r["_vj"] < 0) & (r["_vytd"] < 0)])),
-         _xof(r[(r["_vj"] < 0) & (r["_vytd"] < 0)]["_valo"].sum())],
-    ]
-    tbl = Table(rows, colWidths=[9*cm, 3*cm, 4*cm])
-    tbl.setStyle(TableStyle([
-        ("BACKGROUND",    (0, 0), (-1, 0), BLUE),
-        ("TEXTCOLOR",     (0, 0), (-1, 0), WHITE),
-        ("FONTNAME",      (0, 0), (-1, 0), "Helvetica-Bold"),
-        ("FONTSIZE",      (0, 0), (-1, -1), 8),
-        ("TOPPADDING",    (0, 0), (-1, -1), 4),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
-        ("ALIGN",         (1, 0), (-1, -1), "CENTER"),
-        ("ROWBACKGROUNDS",(0, 1), (-1, -1), [WHITE, BLUE_LIGHT]),
-        ("LINEBELOW",     (0, 0), (-1, 0), 1, BLUE),
-        ("BOX",           (0, 0), (-1, -1), 0.5, BLUE_MID),
-        # Color rows
-        ("TEXTCOLOR", (1, 1), (-1, 2), GREEN),
-        ("TEXTCOLOR", (1, 3), (-1, 4), RED),
-        ("TEXTCOLOR", (1, 5), (-1, 5), GREEN),
-        ("TEXTCOLOR", (1, 6), (-1, 6), RED),
-        ("FONTNAME",  (1, 1), (-1, -1), "Helvetica-Bold"),
+    col_w_2 = (W - 3.4*cm) / 2
+    two_col = Table(
+        [[left_items, right_items]],
+        colWidths=[col_w_2 - .3*cm, col_w_2 + .3*cm],
+    )
+    two_col.setStyle(TableStyle([
+        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+        ("LEFTPADDING",  (0, 0), (-1, -1), 2),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 2),
     ]))
-    items.append(tbl)
-
-    # Double positive list
-    dp = r[(r["_vj"] > 0) & (r["_vytd"] > 0)]
-    if not dp.empty:
-        items.append(Spacer(1, 0.25*cm))
-        items.append(Paragraph(
-            "FCPs en double momentum positif :", styles["subsection"]
-        ))
-        items.append(Paragraph(
-            "  ·  ".join(dp["FCP"].tolist()), styles["body"]
-        ))
-
-    # Alerts YTD < -5%
-    alerts = r[
-        (r["_valo"] > 0) &
-        (r["_vytd"] / r["_valo"].replace(0, float("nan")) < -0.05)
-    ].dropna(subset=["_vytd"])
-    if not alerts.empty:
-        items.append(Spacer(1, 0.25*cm))
-        items.append(Paragraph(
-            "Alertes — FCPs avec YTD < -5% :",
-            ParagraphStyle("alert", parent=styles["subsection"],
-                           textColor=RED),
-        ))
-        for _, row in alerts.iterrows():
-            ytd_pct = row["_vytd"] / row["_valo"] if row["_valo"] else 0
-            items.append(Paragraph(
-                f"▸  {row['FCP']}  :  YTD = {_pct(ytd_pct, signed=True)}",
-                ParagraphStyle("ab", parent=styles["body"], textColor=RED),
-            ))
-
-    # Closing note
-    items.append(Spacer(1, 0.8*cm))
-    items.append(HRFlowable(width="100%", thickness=0.5, color=BLUE_MID))
-    items.append(Spacer(1, 0.15*cm))
-    items.append(Paragraph(
-        f"Rapport généré automatiquement par le système SVM  ·  "
-        "Données BRVM / SharePoint CGF GESTION  ·  "
-        "Document confidentiel — usage interne uniquement.",
-        styles["caption"],
-    ))
+    items.append(two_col)
     return items
 
 
@@ -726,66 +573,76 @@ def _momentum_section(recap: pd.DataFrame, styles: dict) -> list:
 # Public entry point
 # ---------------------------------------------------------------------------
 def generate_report(
-    recap: pd.DataFrame,
+    drivers: pd.DataFrame,
+    by_ticker: pd.DataFrame,
     as_of,
-    exposures=None,
-    recap_period: pd.DataFrame | None = None,
-    period_label: str = "",
+    sectors_map: dict[str, str] | None = None,
+    recap: pd.DataFrame | None = None,
 ) -> bytes:
-    """Generate the PDF analytics report and return it as bytes.
+    """Generate the action-centric PDF report.
 
     Args:
-        recap:         compute_recap() result for as_of date.
-        as_of:         Valuation date (pd.Timestamp or date).
-        exposures:     compute_exposures() result (for sector breakdown).
-                       Pass None to skip.
-        recap_period:  compute_recap() result for the start of the period.
-                       Pass None to skip period comparison.
-        period_label:  Human-readable period label, e.g. "7 derniers jours".
+        drivers:     Long DataFrame from portfolio.compute_action_drivers().
+        by_ticker:   Aggregated DataFrame from portfolio.aggregate_drivers_by_ticker().
+        as_of:       Valuation date.
+        sectors_map: Dict {ticker -> sector}. Pass None to skip sector section.
+        recap:       Recap DataFrame (used only for cover KPIs if drivers is empty).
 
     Returns:
-        PDF bytes ready for st.download_button.
+        PDF as bytes.
     """
+    sectors_map = sectors_map or {}
     as_of_ts = pd.Timestamp(as_of)
     buf = io.BytesIO()
     doc = _build_doc(buf)
     styles = _styles()
 
-    valo_col = pd.to_numeric(
-        recap.get("Valorisation", 0), errors="coerce"
-    ).fillna(0)
-    vj_col = pd.to_numeric(
-        recap.get("Var. jour", 0), errors="coerce"
-    ).fillna(0)
-    total_valo   = float(valo_col.sum())
-    total_vj     = float(vj_col.sum())
-    prev_valo    = total_valo - total_vj
-    vj_pct       = total_vj / prev_valo if prev_valo else 0.0
-    n_actifs     = int((valo_col > 0).sum())
+    # Cover KPIs
+    if not by_ticker.empty:
+        total_pnl  = float(by_ticker["pnl_total"].sum())
+        total_valo = float(by_ticker["valo_total"].sum())
+        n_movers   = int((by_ticker["variation_unit"] != 0).sum())
+        n_fcps     = int(drivers["fcp"].nunique()) if not drivers.empty else 0
+    elif recap is not None and not recap.empty:
+        vj = pd.to_numeric(recap.get("Var. jour", 0), errors="coerce").fillna(0)
+        vl = pd.to_numeric(recap.get("Valorisation", 0), errors="coerce").fillna(0)
+        total_pnl  = float(vj.sum())
+        total_valo = float(vl.sum())
+        n_movers   = 0
+        n_fcps     = len(recap)
+    else:
+        total_pnl = total_valo = 0.0
+        n_movers = n_fcps = 0
 
     story: list = []
 
-    story += _cover_section(
-        as_of=as_of_ts,
-        period_label=period_label,
-        total_valo=total_valo,
-        var_jour=total_vj,
-        var_jour_pct=vj_pct,
-        n_fcps=n_actifs,
-        styles=styles,
-    )
+    story += _cover(as_of_ts, total_pnl, total_valo,
+                    n_movers, n_fcps, styles)
 
-    story += _recap_table_section(recap, styles)
-    story += _catalysts_section(recap, exposures, styles)
+    if not by_ticker.empty:
+        story += _drivers_section(by_ticker, styles)
+        story.append(PageBreak())
+        story += _action_fcp_section(drivers, by_ticker, styles)
+        if sectors_map:
+            story += _sector_section(drivers, sectors_map, styles)
+        story.append(PageBreak())
+        story += _fcp_decomp_section(drivers, styles)
+    else:
+        story.append(Paragraph(
+            "Aucune donnée de cours disponible pour cette séance.",
+            styles["body"],
+        ))
 
-    story.append(PageBreak())
-    story += _period_section(
-        recap_today=recap,
-        recap_period=recap_period,
-        period_label=period_label,
-        styles=styles,
-    )
-    story += _momentum_section(recap, styles)
+    # Footer note
+    story.append(Spacer(1, .6*cm))
+    story.append(HRFlowable(width="100%", thickness=.5, color=BLUE_MID))
+    story.append(Spacer(1, .15*cm))
+    story.append(Paragraph(
+        f"Rapport généré le {as_of_ts.strftime('%d/%m/%Y')}  ·  "
+        "Données BRVM / SharePoint CGF GESTION  ·  "
+        "Document confidentiel — usage interne uniquement.",
+        styles["caption"],
+    ))
 
     doc.build(story)
     buf.seek(0)
