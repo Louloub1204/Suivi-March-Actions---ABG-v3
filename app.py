@@ -640,12 +640,23 @@ if page == "📈 Tableau de bord":
 
         with col_b:
             st.subheader("Top mouvements du jour")
+            _top_raw = (
+                rows_active
+                .assign(_abs=rows_active["plus_moins_value"].abs())
+                .nlargest(10, "_abs")
+            )
+            _top_mov = pd.DataFrame({
+                "Symbole": _top_raw["ticker"].values,
+                "+/- value jour": _top_raw["plus_moins_value"].map(
+                    lambda v: fmt_xof(v, signed=True)
+                ).values,
+                "Variation unitaire": _top_raw["variation"].map(
+                    lambda v: fmt_xof(v, signed=True)
+                ).values,
+            })
             render_table(
-                pd.DataFrame({
-                    "Symbole": rows_active.nlargest(10, rows_active["plus_moins_value"].abs())["ticker"]
-                    if False else
-                    rows_active.assign(_abs=rows_active["plus_moins_value"].abs()).nlargest(10, "_abs")[["ticker", "plus_moins_value", "variation"]].assign(**{"Symbole": lambda d: d["ticker"], "+/- value": lambda d: d["plus_moins_value"].map(lambda v: fmt_xof(v, signed=True)), "Variation unitaire": lambda d: d["variation"].map(lambda v: fmt_xof(v, signed=True))})[["Symbole", "+/- value", "Variation unitaire"]].iloc[:, 0],
-                }),
+                _top_mov,
+                color_cols=["+/- value jour", "Variation unitaire"],
             )
 
         st.download_button(
@@ -1067,12 +1078,37 @@ elif page == "📋 Suivi des cibles":
 
     # ── Import de cibles ────────────────────────────────────────────────────
     with st.expander("📥 Importer les cibles (CSV ou Excel)", expanded=False):
+
+        # Template download buttons
+        st.caption("**Formats acceptés** — télécharge un modèle vide :")
+        col_t1, col_t2 = st.columns(2)
+        with col_t1:
+            template_std = "ticker,weight_pct,amount_fcfa\nBOAC,15.0,\nSNTS,12.5,\nETIT,,500000000\n"
+            st.download_button(
+                "📄 Modèle standard (ticker / weight_pct / amount_fcfa)",
+                data=template_std.encode(),
+                file_name="modele_cibles_standard.csv",
+                mime="text/csv",
+                key="dl_tpl_std",
+            )
+        with col_t2:
+            template_ntw = "name,ticker,weight\nSonatel,SNTS,15.0\nBank of Africa CI,BOAC,12.5\nETI Togo,ETIT,8.0\n"
+            st.download_button(
+                "📄 Modèle Name/Ticker/Weight",
+                data=template_ntw.encode(),
+                file_name="modele_cibles_ntw.csv",
+                mime="text/csv",
+                key="dl_tpl_ntw",
+            )
+
         st.caption(
-            "Format attendu : colonnes **ticker**, **weight_pct** "
-            "(pondération cible en %), **amount_fcfa** (montant cible en FCFA). "
-            "Les deux colonnes cibles sont optionnelles (laisse vide si non renseignée). "
+            "Formats supportés : "
+            "**ticker + weight_pct + amount_fcfa** (standard) "
+            "ou **name + ticker + weight** (poids en %). "
+            "Les colonnes non renseignées peuvent être laissées vides. "
             "L'import écrase toutes les cibles existantes pour ce FCP."
         )
+
         up = st.file_uploader(
             "Fichier de cibles (.csv ou .xlsx)",
             type=["csv", "xlsx"],
@@ -1085,20 +1121,37 @@ elif page == "📋 Suivi des cibles":
                 else:
                     df_up = pd.read_csv(up)
 
-                # Normalize columns
+                # Normalize column names
                 df_up.columns = [c.strip().lower() for c in df_up.columns]
-                if "ticker" not in df_up.columns:
+
+                # Detect Name/Ticker/Weight format
+                if "ticker" not in df_up.columns and "name" in df_up.columns:
+                    st.error("Colonne 'ticker' manquante. Vérifiez que votre fichier "
+                             "contient bien une colonne 'ticker'.")
+                elif "ticker" not in df_up.columns:
                     st.error("Colonne 'ticker' manquante dans le fichier.")
                 else:
+                    # Handle Name/Ticker/Weight format
+                    if "weight" in df_up.columns and "weight_pct" not in df_up.columns:
+                        df_up = df_up.rename(columns={"weight": "weight_pct"})
                     if "weight_pct" not in df_up.columns:
                         df_up["weight_pct"] = None
                     if "amount_fcfa" not in df_up.columns:
                         df_up["amount_fcfa"] = None
+
                     df_up["ticker"] = df_up["ticker"].astype(str).str.strip().str.upper()
-                    st.write(
-                        f"**{len(df_up)}** lignes détectées pour **{fcp}** :"
-                    )
-                    render_table(df_up[["ticker", "weight_pct", "amount_fcfa"]].head(10), height=None)
+
+                    # Preview
+                    preview_cols = [c for c in ["name","ticker","weight_pct","amount_fcfa"]
+                                    if c in df_up.columns]
+                    st.write(f"**{len(df_up)}** lignes détectées :")
+                    preview = df_up[preview_cols].head(10).rename(columns={
+                        "name": "Nom", "ticker": "Ticker",
+                        "weight_pct": "Poids cible (%)",
+                        "amount_fcfa": "Montant cible (FCFA)",
+                    })
+                    render_table(preview, height=None)
+
                     if st.button("Confirmer l'import", key="targets_import_confirm"):
                         n = db.replace_targets_for_fcp(fcp, df_up)
                         _clear_data_cache()
@@ -1401,7 +1454,31 @@ elif page == "💼 Transactions":
             mime="text/csv",
         )
 
-        render_table(tx[["id", "date", "ticker", "sens", "quantite", "prix", "valeur", "frais", "cost_in", "cost_out"]], height=None)
+        tx_display = tx[["id","date","fcp","ticker","sens",
+                          "quantite","prix","valeur","frais",
+                          "cost_in","cost_out"]].copy()
+        tx_display = tx_display.rename(columns={
+            "id":       "ID",
+            "date":     "Date",
+            "fcp":      "FCP",
+            "ticker":   "Ticker",
+            "sens":     "Sens",
+            "quantite": "Quantité",
+            "prix":     "Prix",
+            "valeur":   "Valeur",
+            "frais":    "Frais",
+            "cost_in":  "Coût achat",
+            "cost_out": "Coût cession",
+        })
+        for col in ["Prix","Valeur","Frais","Coût achat","Coût cession"]:
+            tx_display[col] = pd.to_numeric(
+                tx_display[col], errors="coerce"
+            ).map(lambda v: "-" if pd.isna(v) or v == 0
+                  else f"{v:,.0f}".replace(",", " "))
+        tx_display["Quantité"] = pd.to_numeric(
+            tx_display["Quantité"], errors="coerce"
+        ).map(lambda v: f"{v:,.0f}".replace(",", " ") if pd.notna(v) else "-")
+        render_table(tx_display, height=500)
 
         with st.expander("🗑️ Supprimer une transaction"):
             tx_id_del = st.number_input("ID à supprimer", min_value=0, step=1, key="tx_del_id")
