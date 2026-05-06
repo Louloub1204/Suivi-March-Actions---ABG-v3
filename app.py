@@ -55,11 +55,10 @@ st.markdown("""
 [data-testid="stSidebar"] {
     background-color: #2C1F0F !important;
 }
-[data-testid="stSidebar"] > div:first-child {
+[data-testid="stSidebar"] * {
     color: #D4B896 !important;
 }
-[data-testid="stSidebar"] .stRadio label,
-[data-testid="stSidebar"] .stRadio span {
+[data-testid="stSidebar"] .stRadio label {
     color: #D4B896 !important;
     font-size: 0.9rem;
 }
@@ -75,29 +74,15 @@ st.markdown("""
 [data-testid="stSidebar"] hr {
     border-color: #4A3010 !important;
 }
-[data-testid="stSidebar"] [data-testid="stSelectbox"] > div > div {
+[data-testid="stSidebar"] [data-testid="stSelectbox"] > div {
     background-color: #3A2810 !important;
     border-color: #5C3D18 !important;
     color: #FAC775 !important;
 }
-[data-testid="stSidebar"] label {
-    color: #BFA98A !important;
-}
-[data-testid="stSidebar"] [data-testid="stDateInput"] input {
-    background-color: #3A2810 !important;
-    border-color: #5C3D18 !important;
+/* ── Active nav item highlight ── */
+[data-testid="stSidebar"] .stRadio [aria-checked="true"] + div {
     color: #FAC775 !important;
-}
-[data-testid="stSidebar"] [data-baseweb="select"] * {
-    color: #FAC775 !important;
-    background-color: #3A2810 !important;
-}
-[data-testid="stSidebar"] [data-baseweb="radio"] span {
-    color: #D4B896 !important;
-}
-[data-testid="stSidebar"] .stCaption,
-[data-testid="stSidebar"] small {
-    color: #8A6E48 !important;
+    font-weight: 500;
 }
 
 /* ── Top bar / header ── */
@@ -112,59 +97,6 @@ st.markdown("""
 }
 .main .block-container {
     background-color: #FBF8F3 !important;
-}
-
-/* ── Main content text — always dark on light bg ── */
-.main p, .main span, .main div,
-[data-testid="stMainBlockContainer"] p,
-[data-testid="stMainBlockContainer"] span {
-    color: #2C1F0F;
-}
-
-/* ── Dataframe text — force dark, overrides any inherited color ── */
-[data-testid="stDataFrame"] * {
-    color: #2C1F0F !important;
-}
-.dvn-scroller {
-    background-color: #FFFFFF !important;
-}
-[data-testid="stDataFrame"] canvas {
-    color: #2C1F0F !important;
-}
-
-/* ── st.table (HTML table) ── */
-[data-testid="stTable"] table {
-    width: 100%;
-    border-collapse: collapse;
-    font-size: 0.85rem;
-    color: #2C1F0F !important;
-    background-color: #FFFFFF;
-    border: 0.5px solid #E8D9C0;
-    border-radius: 8px;
-    overflow: hidden;
-}
-[data-testid="stTable"] thead tr {
-    background-color: #F2EBE0 !important;
-    border-bottom: 1px solid #E8D9C0;
-}
-[data-testid="stTable"] thead th {
-    color: #633806 !important;
-    font-weight: 500 !important;
-    padding: 8px 12px !important;
-    font-size: 0.8rem !important;
-    text-align: left;
-}
-[data-testid="stTable"] tbody tr:nth-child(even) {
-    background-color: #FBF8F3 !important;
-}
-[data-testid="stTable"] tbody tr:hover {
-    background-color: #FAEEDA !important;
-}
-[data-testid="stTable"] tbody td {
-    color: #2C1F0F !important;
-    padding: 6px 12px !important;
-    font-size: 0.83rem !important;
-    border-bottom: 0.5px solid #F0E8DA;
 }
 
 /* ── Metric cards ── */
@@ -189,7 +121,6 @@ st.markdown("""
 }
 
 /* ── Buttons ── */
-.stButton > button[kind="primary"],
 .stButton > button {
     background-color: #EF9F27 !important;
     color: #2C1F0F !important;
@@ -201,6 +132,7 @@ st.markdown("""
     background-color: #D98A1A !important;
     color: #2C1F0F !important;
 }
+/* Secondary / outline buttons (expanders, download) */
 .stDownloadButton > button {
     background-color: #FFFFFF !important;
     color: #633806 !important;
@@ -222,9 +154,6 @@ st.markdown("""
     font-weight: 500 !important;
     font-size: 0.9rem !important;
 }
-[data-testid="stExpander"] summary span {
-    color: #633806 !important;
-}
 
 /* ── Tabs ── */
 .stTabs [data-baseweb="tab-list"] {
@@ -241,6 +170,14 @@ st.markdown("""
     font-weight: 500 !important;
 }
 
+/* ── DataFrames / tables ── */
+[data-testid="stDataFrame"] {
+    border: 0.5px solid #E8D9C0 !important;
+    border-radius: 8px !important;
+    overflow: hidden;
+}
+.dvn-scroller { background-color: #FFFFFF !important; }
+
 /* ── Info / success / warning boxes ── */
 [data-testid="stInfo"] {
     background-color: #FAEEDA !important;
@@ -256,26 +193,26 @@ st.markdown("""
     border-left-color: #BA7517 !important;
 }
 
-/* ── Select boxes & inputs (main content) ── */
-.main [data-testid="stSelectbox"] > div,
-.main [data-testid="stMultiSelect"] > div {
+/* ── Select boxes & inputs ── */
+[data-testid="stSelectbox"] > div,
+[data-testid="stMultiSelect"] > div {
     border-color: #E8D9C0 !important;
     background-color: #FFFFFF !important;
 }
-.main [data-testid="stTextInput"] input,
-.main [data-testid="stNumberInput"] input {
+[data-testid="stTextInput"] input,
+[data-testid="stNumberInput"] input {
     border-color: #E8D9C0 !important;
     background-color: #FFFFFF !important;
     color: #2C1F0F !important;
 }
-.main [data-testid="stTextInput"] input:focus,
-.main [data-testid="stNumberInput"] input:focus {
+[data-testid="stTextInput"] input:focus,
+[data-testid="stNumberInput"] input:focus {
     border-color: #EF9F27 !important;
     box-shadow: 0 0 0 2px rgba(239,159,39,0.2) !important;
 }
 
 /* ── Dividers ── */
-.main hr {
+hr {
     border-color: #E8D9C0 !important;
 }
 
@@ -284,11 +221,15 @@ st.markdown("""
     background-color: #EF9F27 !important;
 }
 
-/* ── Headings in main content ── */
-.main h1, .main h2, .main h3 {
-    color: #2C1F0F !important;
+/* ── Spinner ── */
+[data-testid="stSpinner"] {
+    color: #EF9F27 !important;
 }
-.main h1 { border-bottom: 2px solid #EF9F27; padding-bottom: 0.3rem; }
+
+/* ── Charts (st.bar_chart, st.line_chart) ── */
+[data-testid="stArrowVegaLiteChart"] canvas {
+    border-radius: 8px;
+}
 </style>
 """, unsafe_allow_html=True)
 
@@ -370,139 +311,23 @@ def fmt_pct(v: float, signed: bool = False) -> str:
     return f"{v*100:,.2f}%".replace(",", " ")
 
 
-def render_table(
-    df: pd.DataFrame,
-    height: int | None = None,
-    color_cols: list[str] | None = None,
-) -> None:
-    """Render a DataFrame as a styled HTML table — bypasses Canvas/WebGL.
-
-    Auto-formats raw numbers with space-separated thousands.
-    color_cols: columns whose values (starting with + or -) get green/red.
-    """
-    color_cols = set(color_cols or [])
-
-    # Auto-format any remaining raw numeric columns
-    df = df.copy()
-    for col in df.columns:
-        if pd.api.types.is_float_dtype(df[col]):
-            df[col] = df[col].map(
-                lambda v: "-" if pd.isna(v)
-                else f"{v:,.0f} FCFA".replace(",", " ")
-            )
-        elif pd.api.types.is_integer_dtype(df[col]):
-            df[col] = df[col].map(
-                lambda v: "-" if pd.isna(v)
-                else f"{v:,}".replace(",", " ")
-            )
-        else:
-            df[col] = df[col].fillna("-").astype(str)
-
-    def _td(col: str, val: str) -> str:
-        s = str(val).strip()
-        td_base = "padding:6px 11px;white-space:nowrap;"
-        if col not in color_cols:
-            return f"<td style='{td_base}'>{s}</td>"
-        if s.startswith("+") or s.startswith("▲"):
-            return (f"<td style='{td_base}color:#1A6B3E;font-weight:500;'>"
-                    f"▲ {s.lstrip('+').lstrip('▲').strip()}</td>")
-        elif s.startswith("-") or s.startswith("▼"):
-            return (f"<td style='{td_base}color:#B53A2F;font-weight:500;'>"
-                    f"▼ {s.lstrip('-').lstrip('▼').strip()}</td>")
-        else:
-            return f"<td style='{td_base}color:#8A6E48;'>{s}</td>"
-
-    th = (
-        "style='background:#F2EBE0;color:#633806;font-weight:500;"
-        "padding:7px 11px;font-size:0.79rem;text-align:left;"
-        "border-bottom:1px solid #E8D9C0;white-space:nowrap;'"
-    )
-    header = "".join(f"<th {th}>{c}</th>" for c in df.columns)
-
-    rows_html = ""
-    for i, (_, row) in enumerate(df.iterrows()):
-        bg = "#FFFFFF" if i % 2 == 0 else "#FBF8F3"
-        cells = "".join(_td(col, str(row[col])) for col in df.columns)
-        rows_html += (
-            f"<tr style='background:{bg};"
-            f"border-bottom:0.5px solid #F0E8DA;'>{cells}</tr>"
-        )
-
-    scroll = f"max-height:{height}px;overflow-y:auto;" if height else ""
-    st.markdown(
-        f"<div style='overflow-x:auto;{scroll}border:0.5px solid #E8D9C0;"
-        f"border-radius:8px;background:#FFFFFF;margin-bottom:0.5rem;'>"
-        f"<table style='width:100%;border-collapse:collapse;"
-        f"font-size:0.82rem;color:#2C1F0F;'>"
-        f"<thead><tr>{header}</tr></thead>"
-        f"<tbody>{rows_html}</tbody>"
-        f"</table></div>",
-        unsafe_allow_html=True,
-    )
-
-def render_table(
-    df: pd.DataFrame,
-    height: int | None = None,
-    color_cols: list[str] | None = None,
-    color_source: dict[str, str] | None = None,
-) -> None:
-    """Render a DataFrame as a styled HTML table via st.markdown.
-
-    This bypasses Streamlit's Canvas/WebGL renderer (st.dataframe) which
-    ignores CSS color rules in custom themes.
-
-    Args:
-        df: DataFrame with already-formatted string values for display.
-        height: optional max-height in px (adds vertical scroll).
-        color_cols: list of column names to apply green/red coloring to.
-            The cell value must start with '+' (green) or '-' or '▼' (red).
-        color_source: dict mapping display col name → raw numeric col name
-            in the original data. Not needed when values start with +/-.
-    """
-    color_cols = color_cols or []
-
-    def _td(col: str, val: str) -> str:
-        if col not in color_cols:
-            return f"<td>{val}</td>"
-        s = str(val).strip()
-        if s.startswith("+") or s.startswith("▲"):
-            style = "color:#1A6B3E;font-weight:500;"
-        elif s.startswith("-") or s.startswith("▼"):
-            style = "color:#B53A2F;font-weight:500;"
-        else:
-            style = "color:#8A6E48;"
-        return f"<td style='{style}'>{val}</td>"
-
-    header = "".join(
-        f"<th style='background:#F2EBE0;color:#633806;font-weight:500;"
-        f"padding:7px 11px;font-size:0.79rem;text-align:left;"
-        f"border-bottom:1px solid #E8D9C0;white-space:nowrap;'>{c}</th>"
-        for c in df.columns
-    )
-
-    rows_html = ""
-    for i, (_, row) in enumerate(df.iterrows()):
-        bg = "#FFFFFF" if i % 2 == 0 else "#FBF8F3"
-        cells = "".join(_td(col, row[col]) for col in df.columns)
-        rows_html += (
-            f"<tr style='background:{bg};border-bottom:"
-            f"0.5px solid #F0E8DA;'>{cells}</tr>"
-        )
-
-    scroll_style = (
-        f"max-height:{height}px;overflow-y:auto;" if height else ""
-    )
-
-    html = (
-        f"<div style='overflow-x:auto;{scroll_style}border:0.5px solid "
-        f"#E8D9C0;border-radius:8px;background:#FFFFFF;margin-bottom:0.5rem;'>"
-        f"<table style='width:100%;border-collapse:collapse;font-size:0.82rem;"
-        f"color:#2C1F0F;'>"
-        f"<thead><tr>{header}</tr></thead>"
-        f"<tbody>{rows_html}</tbody>"
-        f"</table></div>"
-    )
-    st.markdown(html, unsafe_allow_html=True)
+def style_dashboard(df: pd.DataFrame) -> pd.DataFrame:
+    arrow = df["variation"].apply(lambda v: "▲" if v > 0 else ("▼" if v < 0 else "•"))
+    out = pd.DataFrame({
+        "": arrow,
+        "Symbole": df["ticker"],
+        "Quantité": df["quantite"].map(lambda v: f"{v:,.0f}".replace(",", " ")),
+        "CMP": df["cmp"].map(lambda v: f"{v:,.2f}".replace(",", " ")),
+        "Coût total": df["cout_total"].map(fmt_xof),
+        "Valorisation": df["valorisation"].map(fmt_xof),
+        "+/- estim.": df["diff_estim"].map(lambda v: fmt_xof(v, signed=True)),
+        "Poids": df["poids"].map(fmt_pct),
+        "Cours veille": df["prev_close"].map(lambda v: f"{v:,.0f}".replace(",", " ")),
+        "Cours jour": df["close"].map(lambda v: f"{v:,.0f}".replace(",", " ")),
+        "Variation": df["variation"].map(lambda v: fmt_xof(v, signed=True)),
+        "+/- value jour": df["plus_moins_value"].map(lambda v: fmt_xof(v, signed=True)),
+    })
+    return out
 
 
 # ---------------------------------------------------------------------------
@@ -592,40 +417,19 @@ if page == "📈 Tableau de bord":
         rows_zero = rows[rows["quantite"] == 0]
 
         st.subheader("Positions actives")
-        render_table(
-            pd.DataFrame({
-                "Symbole": rows_active["ticker"],
-                "Quantité": rows_active["quantite"].map(lambda v: f"{v:,.0f}".replace(",", " ")),
-                "CMP": rows_active["cmp"].map(lambda v: f"{v:,.2f}".replace(",", " ")),
-                "Coût total": rows_active["cout_total"].map(fmt_xof),
-                "Valorisation": rows_active["valorisation"].map(fmt_xof),
-                "+/- estim.": rows_active["diff_estim"].map(lambda v: fmt_xof(v, signed=True)),
-                "Poids": rows_active["poids"].map(fmt_pct),
-                "Cours veille": rows_active["prev_close"].map(lambda v: f"{v:,.0f}".replace(",", " ") if v else "-"),
-                "Cours jour": rows_active["close"].map(lambda v: f"{v:,.0f}".replace(",", " ") if v else "-"),
-                "Variation": rows_active["variation"].map(lambda v: fmt_xof(v, signed=True)),
-                "+/- value jour": rows_active["plus_moins_value"].map(lambda v: fmt_xof(v, signed=True)),
-            }),
-            color_cols=["+/- estim.", "Variation", "+/- value jour"],
+        st.dataframe(
+            style_dashboard(rows_active),
+            use_container_width=True,
+            hide_index=True,
+            height=min(600, 35 + 35 * len(rows_active)),
         )
 
         if not rows_zero.empty:
             with st.expander(f"Lignes soldées ({len(rows_zero)})"):
-                render_table(
-                    pd.DataFrame({
-                        "Symbole": rows_zero["ticker"],
-                        "Quantité": rows_zero["quantite"].map(lambda v: f"{v:,.0f}".replace(",", " ")),
-                        "CMP": rows_zero["cmp"].map(lambda v: f"{v:,.2f}".replace(",", " ")),
-                        "Coût total": rows_zero["cout_total"].map(fmt_xof),
-                        "Valorisation": rows_zero["valorisation"].map(fmt_xof),
-                        "+/- estim.": rows_zero["diff_estim"].map(lambda v: fmt_xof(v, signed=True)),
-                        "Poids": rows_zero["poids"].map(fmt_pct),
-                        "Cours veille": rows_zero["prev_close"].map(lambda v: f"{v:,.0f}".replace(",", " ") if v else "-"),
-                        "Cours jour": rows_zero["close"].map(lambda v: f"{v:,.0f}".replace(",", " ") if v else "-"),
-                        "Variation": rows_zero["variation"].map(lambda v: fmt_xof(v, signed=True)),
-                        "+/- value jour": rows_zero["plus_moins_value"].map(lambda v: fmt_xof(v, signed=True)),
-                    }),
-                    color_cols=["+/- estim.", "Variation", "+/- value jour"],
+                st.dataframe(
+                    style_dashboard(rows_zero),
+                    use_container_width=True,
+                    hide_index=True,
                 )
 
         st.divider()
@@ -640,24 +444,14 @@ if page == "📈 Tableau de bord":
 
         with col_b:
             st.subheader("Top mouvements du jour")
-            _top_raw = (
-                rows_active
-                .assign(_abs=rows_active["plus_moins_value"].abs())
-                .nlargest(10, "_abs")
-            )
-            _top_mov = pd.DataFrame({
-                "Symbole": _top_raw["ticker"].values,
-                "+/- value jour": _top_raw["plus_moins_value"].map(
-                    lambda v: fmt_xof(v, signed=True)
-                ).values,
-                "Variation unitaire": _top_raw["variation"].map(
-                    lambda v: fmt_xof(v, signed=True)
-                ).values,
+            top = rows_active.assign(abs_var=rows_active["plus_moins_value"].abs())
+            top = top.nlargest(10, "abs_var")[["ticker", "plus_moins_value", "variation"]]
+            top = top.rename(columns={
+                "ticker": "Symbole",
+                "plus_moins_value": "+/- value",
+                "variation": "Variation unitaire",
             })
-            render_table(
-                _top_mov,
-                color_cols=["+/- value jour", "Variation unitaire"],
-            )
+            st.dataframe(top, use_container_width=True, hide_index=True)
 
         st.download_button(
             "⬇️ Exporter le tableau (CSV)",
@@ -708,76 +502,14 @@ elif page == "📊 Récap variations":
         display["Var. YTD"] = display["Var. YTD"].map(lambda v: fmt_xof(v, signed=True))
         display["Var. YTD %"] = display["Var. YTD %"].map(fmt_pct)
 
-        render_table(display, height=None,
-                     color_cols=["Var. jour", "Var. jour %",
-                                 "Var. YTD", "Var. YTD %"])
+        st.dataframe(display, use_container_width=True, hide_index=True)
 
-        col_csv, col_pdf = st.columns([1, 1])
-        with col_csv:
-            st.download_button(
-                "⬇️ Exporter le récap (CSV)",
-                data=recap.to_csv(index=False).encode("utf-8"),
-                file_name=f"recap_variations_{as_of_ts.date()}.csv",
-                mime="text/csv",
-            )
-        with col_pdf:
-            period_options = {
-                "7 derniers jours":    7,
-                "30 derniers jours":   30,
-                "Début d'année (YTD)": None,
-            }
-            period_choice = st.selectbox(
-                "Période de comparaison",
-                options=list(period_options.keys()),
-                key="pdf_period_select",
-            )
-            if st.button("📄 Générer le rapport PDF", type="primary", key="gen_pdf"):
-                with st.spinner("Génération du rapport PDF…"):
-                    try:
-                        from report_pdf import generate_report
-                        from sectors import annotate as annotate_sectors
-
-                        # Compute period start date
-                        n_days = period_options[period_choice]
-                        if n_days is None:
-                            period_start = pd.Timestamp(
-                                year=as_of_ts.year, month=1, day=1
-                            )
-                        else:
-                            period_start = as_of_ts - pd.Timedelta(days=n_days)
-
-                        # Recap at period start for comparison
-                        recap_period = compute_recap(
-                            tx_all, prices, all_fcps,
-                            period_start, divs_by_fcp
-                        )
-
-                        # Exposures for sector breakdown
-                        exp_for_pdf = compute_exposures(
-                            tx_all, prices, all_fcps, as_of_ts, divs_by_fcp
-                        )
-                        if not exp_for_pdf.empty:
-                            exp_for_pdf = annotate_sectors(exp_for_pdf)
-
-                        pdf_bytes = generate_report(
-                            recap=recap,
-                            as_of=as_of_ts,
-                            exposures=exp_for_pdf,
-                            recap_period=recap_period,
-                            period_label=period_choice,
-                        )
-                        st.download_button(
-                            "⬇️ Télécharger le rapport",
-                            data=pdf_bytes,
-                            file_name=(
-                                f"rapport_analytics_fcp_"
-                                f"{as_of_ts.date()}.pdf"
-                            ),
-                            mime="application/pdf",
-                            key="dl_pdf_report",
-                        )
-                    except Exception as e:
-                        st.error(f"Génération PDF impossible : {e}")
+        st.download_button(
+            "⬇️ Exporter le récap (CSV)",
+            data=recap.to_csv(index=False).encode("utf-8"),
+            file_name=f"recap_variations_{as_of_ts.date()}.csv",
+            mime="text/csv",
+        )
 
         st.divider()
         col_a, col_b = st.columns(2)
@@ -791,8 +523,7 @@ elif page == "📊 Récap variations":
                 lambda v: fmt_xof(v, signed=True)
             )
             top_day["Var. jour %"] = top_day["Var. jour %"].map(fmt_pct)
-            render_table(top_day, height=None,
-                         color_cols=["Var. jour", "Var. jour %"])
+            st.dataframe(top_day, use_container_width=True, hide_index=True)
         with col_b:
             st.subheader("Top variations YTD")
             top_ytd = (
@@ -803,8 +534,7 @@ elif page == "📊 Récap variations":
                 lambda v: fmt_xof(v, signed=True)
             )
             top_ytd["Var. YTD %"] = top_ytd["Var. YTD %"].map(fmt_pct)
-            render_table(top_ytd, height=None,
-                         color_cols=["Var. YTD", "Var. YTD %"])
+            st.dataframe(top_ytd, use_container_width=True, hide_index=True)
 
 
 # ---------------------------------------------------------------------------
@@ -900,7 +630,7 @@ elif page == "🎯 Expositions":
             }).copy()
             display_global["Valorisation"] = display_global["Valorisation"].map(fmt_xof)
             display_global["Poids"] = display_global["Poids"].map(fmt_pct)
-            render_table(display_global, height=None)
+            st.dataframe(display_global, use_container_width=True, hide_index=True)
 
             st.download_button(
                 "⬇️ Exporter (CSV)",
@@ -948,7 +678,7 @@ elif page == "🎯 Expositions":
         display_sector = sector_table.copy()
         display_sector["Valorisation"] = display_sector["Valorisation"].map(fmt_xof)
         display_sector["Poids global"] = display_sector["Poids global"].map(fmt_pct)
-        render_table(display_sector, height=None)
+        st.dataframe(display_sector, use_container_width=True, hide_index=True)
 
         # Sector × FCP matrix
         with st.expander("Voir la matrice secteurs × FCPs"):
@@ -990,7 +720,7 @@ elif page == "🎯 Expositions":
                 ))
                 export_sec_df = m
 
-            render_table(formatted, height=None)
+            st.dataframe(formatted, use_container_width=True)
 
             st.download_button(
                 "⬇️ Exporter la matrice sectorielle (CSV)",
@@ -1023,12 +753,14 @@ elif page == "🎯 Expositions":
             if view_mode_single == "Montant (FCFA)":
                 single["Valorisation"] = single["Valorisation"].map(fmt_xof)
                 single["Poids"] = single["Poids"].map(fmt_pct)
-                render_table(single, height=500)
+                st.dataframe(single, use_container_width=True,
+                             hide_index=True, height=500)
                 export_df = global_by_ticker
             else:
                 single["Valorisation"] = single["Valorisation"].map(fmt_xof)
                 single["Poids"] = single["Poids"].map(fmt_pct)
-                render_table(single, height=500)
+                st.dataframe(single, use_container_width=True,
+                             hide_index=True, height=500)
                 export_df = global_by_ticker
             st.download_button(
                 "⬇️ Exporter (CSV)",
@@ -1062,7 +794,7 @@ elif page == "🎯 Expositions":
                 formatted = matrix_display.apply(lambda col: col.map(
                     lambda v: f"{v:,.0f}".replace(",", " ") if v > 0 else "-"
                 ))
-                render_table(formatted, height=600)
+                st.dataframe(formatted, use_container_width=True, height=600)
                 export_df = matrix_display
 
             elif view_mode == "Poids dans le FCP":
@@ -1071,7 +803,7 @@ elif page == "🎯 Expositions":
                 formatted = matrix_pct.apply(lambda col: col.map(
                     lambda v: f"{v*100:.1f}%" if v > 0 else "-"
                 ))
-                render_table(formatted, height=600)
+                st.dataframe(formatted, use_container_width=True, height=600)
                 export_df = matrix_pct
 
             else:  # Poids global
@@ -1080,7 +812,7 @@ elif page == "🎯 Expositions":
                 formatted = matrix_pct.apply(lambda col: col.map(
                     lambda v: f"{v*100:.2f}%" if v > 0 else "-"
                 ))
-                render_table(formatted, height=600)
+                st.dataframe(formatted, use_container_width=True, height=600)
                 export_df = matrix_pct
 
             st.download_button(
@@ -1110,7 +842,7 @@ elif page == "🎯 Expositions":
             display_conc["Valorisation"] = display_conc["Valorisation"].map(fmt_xof)
             for c in ["Top 1 %", "Top 3 %", "Top 5 %", "Top 10 %"]:
                 display_conc[c] = display_conc[c].map(fmt_pct)
-            render_table(display_conc, height=None)
+            st.dataframe(display_conc, use_container_width=True, hide_index=True)
 
             st.download_button(
                 "⬇️ Exporter (CSV)",
@@ -1138,37 +870,12 @@ elif page == "📋 Suivi des cibles":
 
     # ── Import de cibles ────────────────────────────────────────────────────
     with st.expander("📥 Importer les cibles (CSV ou Excel)", expanded=False):
-
-        # Template download buttons
-        st.caption("**Formats acceptés** — télécharge un modèle vide :")
-        col_t1, col_t2 = st.columns(2)
-        with col_t1:
-            template_std = "ticker,weight_pct,amount_fcfa\nBOAC,15.0,\nSNTS,12.5,\nETIT,,500000000\n"
-            st.download_button(
-                "📄 Modèle standard (ticker / weight_pct / amount_fcfa)",
-                data=template_std.encode(),
-                file_name="modele_cibles_standard.csv",
-                mime="text/csv",
-                key="dl_tpl_std",
-            )
-        with col_t2:
-            template_ntw = "name,ticker,weight\nSonatel,SNTS,15.0\nBank of Africa CI,BOAC,12.5\nETI Togo,ETIT,8.0\n"
-            st.download_button(
-                "📄 Modèle Name/Ticker/Weight",
-                data=template_ntw.encode(),
-                file_name="modele_cibles_ntw.csv",
-                mime="text/csv",
-                key="dl_tpl_ntw",
-            )
-
         st.caption(
-            "Formats supportés : "
-            "**ticker + weight_pct + amount_fcfa** (standard) "
-            "ou **name + ticker + weight** (poids en %). "
-            "Les colonnes non renseignées peuvent être laissées vides. "
+            "Format attendu : colonnes **ticker**, **weight_pct** "
+            "(pondération cible en %), **amount_fcfa** (montant cible en FCFA). "
+            "Les deux colonnes cibles sont optionnelles (laisse vide si non renseignée). "
             "L'import écrase toutes les cibles existantes pour ce FCP."
         )
-
         up = st.file_uploader(
             "Fichier de cibles (.csv ou .xlsx)",
             type=["csv", "xlsx"],
@@ -1181,37 +888,21 @@ elif page == "📋 Suivi des cibles":
                 else:
                     df_up = pd.read_csv(up)
 
-                # Normalize column names
+                # Normalize columns
                 df_up.columns = [c.strip().lower() for c in df_up.columns]
-
-                # Detect Name/Ticker/Weight format
-                if "ticker" not in df_up.columns and "name" in df_up.columns:
-                    st.error("Colonne 'ticker' manquante. Vérifiez que votre fichier "
-                             "contient bien une colonne 'ticker'.")
-                elif "ticker" not in df_up.columns:
+                if "ticker" not in df_up.columns:
                     st.error("Colonne 'ticker' manquante dans le fichier.")
                 else:
-                    # Handle Name/Ticker/Weight format
-                    if "weight" in df_up.columns and "weight_pct" not in df_up.columns:
-                        df_up = df_up.rename(columns={"weight": "weight_pct"})
                     if "weight_pct" not in df_up.columns:
                         df_up["weight_pct"] = None
                     if "amount_fcfa" not in df_up.columns:
                         df_up["amount_fcfa"] = None
-
                     df_up["ticker"] = df_up["ticker"].astype(str).str.strip().str.upper()
-
-                    # Preview
-                    preview_cols = [c for c in ["name","ticker","weight_pct","amount_fcfa"]
-                                    if c in df_up.columns]
-                    st.write(f"**{len(df_up)}** lignes détectées :")
-                    preview = df_up[preview_cols].head(10).rename(columns={
-                        "name": "Nom", "ticker": "Ticker",
-                        "weight_pct": "Poids cible (%)",
-                        "amount_fcfa": "Montant cible (FCFA)",
-                    })
-                    render_table(preview, height=None)
-
+                    st.write(
+                        f"**{len(df_up)}** lignes détectées pour **{fcp}** :"
+                    )
+                    st.dataframe(df_up[["ticker", "weight_pct", "amount_fcfa"]].head(10),
+                                 use_container_width=True, hide_index=True)
                     if st.button("Confirmer l'import", key="targets_import_confirm"):
                         n = db.replace_targets_for_fcp(fcp, df_up)
                         _clear_data_cache()
@@ -1345,10 +1036,11 @@ elif page == "📋 Suivi des cibles":
                 "Poids actuel", "Cible %", "Cible FCFA",
                 "Écart FCFA", "Écart %", "Qté écart", "Sens",
             ]
-            render_table(
+            st.dataframe(
                 display[cols_show].rename(columns={"ticker": "Ticker"}),
+                use_container_width=True,
+                hide_index=True,
                 height=600,
-                color_cols=["Écart FCFA", "Écart %", "Qté écart"],
             )
 
             # Export
@@ -1374,7 +1066,11 @@ elif page == "📋 Suivi des cibles":
                 raw_disp["amount_fcfa"] = raw_disp["amount_fcfa"].map(
                     lambda v: fmt_xof(v) if pd.notna(v) else "—"
                 )
-                render_table(raw_disp[["ticker", "weight_pct", "amount_fcfa", "updated_at"]], height=None)
+                st.dataframe(
+                    raw_disp[["ticker", "weight_pct", "amount_fcfa", "updated_at"]],
+                    use_container_width=True,
+                    hide_index=True,
+                )
                 if st.button("🗑️ Effacer toutes les cibles de ce FCP", key="clear_all_targets"):
                     db.replace_targets_for_fcp(fcp, pd.DataFrame(columns=["ticker","weight_pct","amount_fcfa"]))
                     _clear_data_cache()
@@ -1514,31 +1210,11 @@ elif page == "💼 Transactions":
             mime="text/csv",
         )
 
-        tx_display = tx[["id","date","fcp","ticker","sens",
-                          "quantite","prix","valeur","frais",
-                          "cost_in","cost_out"]].copy()
-        tx_display = tx_display.rename(columns={
-            "id":       "ID",
-            "date":     "Date",
-            "fcp":      "FCP",
-            "ticker":   "Ticker",
-            "sens":     "Sens",
-            "quantite": "Quantité",
-            "prix":     "Prix",
-            "valeur":   "Valeur",
-            "frais":    "Frais",
-            "cost_in":  "Coût achat",
-            "cost_out": "Coût cession",
-        })
-        for col in ["Prix","Valeur","Frais","Coût achat","Coût cession"]:
-            tx_display[col] = pd.to_numeric(
-                tx_display[col], errors="coerce"
-            ).map(lambda v: "-" if pd.isna(v) or v == 0
-                  else f"{v:,.0f}".replace(",", " "))
-        tx_display["Quantité"] = pd.to_numeric(
-            tx_display["Quantité"], errors="coerce"
-        ).map(lambda v: f"{v:,.0f}".replace(",", " ") if pd.notna(v) else "-")
-        render_table(tx_display, height=500)
+        st.dataframe(
+            tx[["id", "date", "ticker", "sens", "quantite", "prix", "valeur", "frais", "cost_in", "cost_out"]],
+            use_container_width=True,
+            hide_index=True,
+        )
 
         with st.expander("🗑️ Supprimer une transaction"):
             tx_id_del = st.number_input("ID à supprimer", min_value=0, step=1, key="tx_del_id")
@@ -1611,7 +1287,11 @@ elif page == "🌐 Cours BRVM":
             display["variation_pct"] = display["variation_pct"].map(
                 lambda v: f"{v:+.2f}%" if pd.notna(v) else "-"
             )
-        render_table(display.drop(columns=["fetched_at"], errors="ignore"), height=None)
+        st.dataframe(
+            display.drop(columns=["fetched_at"], errors="ignore"),
+            use_container_width=True,
+            hide_index=True,
+        )
 
     st.divider()
     with st.expander("📥 Import manuel CSV (fallback si scraping bloqué)"):
@@ -1736,7 +1416,11 @@ elif page == "📚 Historique cours":
             st.line_chart(pivot)
 
             with st.expander("Voir les données brutes"):
-                render_table(sub.sort_values(["ticker", "date"]), height=None)
+                st.dataframe(
+                    sub.sort_values(["ticker", "date"]),
+                    use_container_width=True,
+                    hide_index=True,
+                )
 
 
 # ---------------------------------------------------------------------------
@@ -1774,7 +1458,7 @@ elif page == "⚙️ Paramètres":
         with col3:
             st.write("")
             st.write("")
-            if st.button("💾 Enregistrer dividende", key="div_save"):
+            if st.button("💾 Enregistrer dividende"):
                 db.set_dividend(fcp, div_ticker, float(div_amount))
                 st.success("Dividende enregistré.")
                 _clear_data_cache()
@@ -1782,29 +1466,10 @@ elif page == "⚙️ Paramètres":
 
         if divs:
             st.write("**Dividendes actifs :**")
-            render_table(pd.DataFrame(list(divs.items()), columns=["Symbole", "Montant"]), height=None)
-
-            col_del1, col_del2 = st.columns([1, 1])
-            with col_del1:
-                if st.button(
-                    f"🗑️ Supprimer dividende {div_ticker}",
-                    key="div_del_one",
-                ):
-                    db.set_dividend(fcp, div_ticker, 0.0)
-                    _clear_data_cache()
-                    st.success(f"Dividende de {div_ticker} supprimé.")
-                    st.rerun()
-            with col_del2:
-                if st.button(
-                    f"🗑️ Effacer tous les dividendes ({fcp})",
-                    key="div_del_all",
-                    type="secondary",
-                ):
-                    for ticker_d in list(divs.keys()):
-                        db.set_dividend(fcp, ticker_d, 0.0)
-                    _clear_data_cache()
-                    st.success(f"Tous les dividendes de {fcp} supprimés.")
-                    st.rerun()
+            st.dataframe(
+                pd.DataFrame(list(divs.items()), columns=["Symbole", "Montant"]),
+                hide_index=True, use_container_width=True,
+            )
 
     st.divider()
     st.subheader("Maintenance")
