@@ -712,12 +712,72 @@ elif page == "📊 Récap variations":
                      color_cols=["Var. jour", "Var. jour %",
                                  "Var. YTD", "Var. YTD %"])
 
-        st.download_button(
-            "⬇️ Exporter le récap (CSV)",
-            data=recap.to_csv(index=False).encode("utf-8"),
-            file_name=f"recap_variations_{as_of_ts.date()}.csv",
-            mime="text/csv",
-        )
+        col_csv, col_pdf = st.columns([1, 1])
+        with col_csv:
+            st.download_button(
+                "⬇️ Exporter le récap (CSV)",
+                data=recap.to_csv(index=False).encode("utf-8"),
+                file_name=f"recap_variations_{as_of_ts.date()}.csv",
+                mime="text/csv",
+            )
+        with col_pdf:
+            period_options = {
+                "7 derniers jours":    7,
+                "30 derniers jours":   30,
+                "Début d'année (YTD)": None,
+            }
+            period_choice = st.selectbox(
+                "Période de comparaison",
+                options=list(period_options.keys()),
+                key="pdf_period_select",
+            )
+            if st.button("📄 Générer le rapport PDF", type="primary", key="gen_pdf"):
+                with st.spinner("Génération du rapport PDF…"):
+                    try:
+                        from report_pdf import generate_report
+                        from sectors import annotate as annotate_sectors
+
+                        # Compute period start date
+                        n_days = period_options[period_choice]
+                        if n_days is None:
+                            period_start = pd.Timestamp(
+                                year=as_of_ts.year, month=1, day=1
+                            )
+                        else:
+                            period_start = as_of_ts - pd.Timedelta(days=n_days)
+
+                        # Recap at period start for comparison
+                        recap_period = compute_recap(
+                            tx_all, prices, all_fcps,
+                            period_start, divs_by_fcp
+                        )
+
+                        # Exposures for sector breakdown
+                        exp_for_pdf = compute_exposures(
+                            tx_all, prices, all_fcps, as_of_ts, divs_by_fcp
+                        )
+                        if not exp_for_pdf.empty:
+                            exp_for_pdf = annotate_sectors(exp_for_pdf)
+
+                        pdf_bytes = generate_report(
+                            recap=recap,
+                            as_of=as_of_ts,
+                            exposures=exp_for_pdf,
+                            recap_period=recap_period,
+                            period_label=period_choice,
+                        )
+                        st.download_button(
+                            "⬇️ Télécharger le rapport",
+                            data=pdf_bytes,
+                            file_name=(
+                                f"rapport_analytics_fcp_"
+                                f"{as_of_ts.date()}.pdf"
+                            ),
+                            mime="application/pdf",
+                            key="dl_pdf_report",
+                        )
+                    except Exception as e:
+                        st.error(f"Génération PDF impossible : {e}")
 
         st.divider()
         col_a, col_b = st.columns(2)
