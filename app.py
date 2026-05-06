@@ -503,19 +503,6 @@ def render_table(
         f"</table></div>"
     )
     st.markdown(html, unsafe_allow_html=True)
-    """Return an HTML <td> cell, optionally colored green/red."""
-    if not colored or numeric_val is None:
-        return f"<td>{val}</td>"
-    if numeric_val > 0:
-        return (f"<td style='color:#1A6B3E;font-weight:500;'>"
-                f"<span style='color:#1A6B3E'>▲</span> {val}</td>")
-    elif numeric_val < 0:
-        return (f"<td style='color:#B53A2F;font-weight:500;'>"
-                f"<span style='color:#B53A2F'>▼</span> {val}</td>")
-    else:
-        return f"<td style='color:#8A6E48;'>{val}</td>"
-
-
 
 
 # ---------------------------------------------------------------------------
