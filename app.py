@@ -46,6 +46,194 @@ st.set_page_config(
 require_login()
 
 
+# ---------------------------------------------------------------------------
+# Dune Gold — custom CSS theme injection
+# ---------------------------------------------------------------------------
+st.markdown("""
+<style>
+/* ── Sidebar ── */
+[data-testid="stSidebar"] {
+    background-color: #2C1F0F !important;
+}
+[data-testid="stSidebar"] * {
+    color: #D4B896 !important;
+}
+[data-testid="stSidebar"] .stRadio label {
+    color: #D4B896 !important;
+    font-size: 0.9rem;
+}
+[data-testid="stSidebar"] [data-testid="stMarkdownContainer"] p {
+    color: #BFA98A !important;
+    font-size: 0.8rem;
+}
+[data-testid="stSidebar"] h1,
+[data-testid="stSidebar"] h2,
+[data-testid="stSidebar"] h3 {
+    color: #EFA823 !important;
+}
+[data-testid="stSidebar"] hr {
+    border-color: #4A3010 !important;
+}
+[data-testid="stSidebar"] [data-testid="stSelectbox"] > div {
+    background-color: #3A2810 !important;
+    border-color: #5C3D18 !important;
+    color: #FAC775 !important;
+}
+/* ── Active nav item highlight ── */
+[data-testid="stSidebar"] .stRadio [aria-checked="true"] + div {
+    color: #FAC775 !important;
+    font-weight: 500;
+}
+
+/* ── Top bar / header ── */
+[data-testid="stHeader"] {
+    background-color: #FBF8F3 !important;
+    border-bottom: 1px solid #E8D9C0;
+}
+
+/* ── Page background ── */
+.stApp {
+    background-color: #FBF8F3 !important;
+}
+.main .block-container {
+    background-color: #FBF8F3 !important;
+}
+
+/* ── Metric cards ── */
+[data-testid="stMetric"] {
+    background-color: #FFFFFF;
+    border: 0.5px solid #E8D9C0;
+    border-left: 3px solid #EF9F27;
+    border-radius: 8px;
+    padding: 0.75rem 1rem !important;
+}
+[data-testid="stMetricLabel"] {
+    color: #8A6E48 !important;
+    font-size: 0.78rem !important;
+}
+[data-testid="stMetricValue"] {
+    color: #2C1F0F !important;
+    font-size: 1.2rem !important;
+    font-weight: 500 !important;
+}
+[data-testid="stMetricDelta"] {
+    font-size: 0.78rem !important;
+}
+
+/* ── Buttons ── */
+.stButton > button {
+    background-color: #EF9F27 !important;
+    color: #2C1F0F !important;
+    border: none !important;
+    border-radius: 6px !important;
+    font-weight: 500 !important;
+}
+.stButton > button:hover {
+    background-color: #D98A1A !important;
+    color: #2C1F0F !important;
+}
+/* Secondary / outline buttons (expanders, download) */
+.stDownloadButton > button {
+    background-color: #FFFFFF !important;
+    color: #633806 !important;
+    border: 1px solid #E8D9C0 !important;
+    border-radius: 6px !important;
+}
+.stDownloadButton > button:hover {
+    background-color: #FAEEDA !important;
+}
+
+/* ── Expanders ── */
+[data-testid="stExpander"] {
+    border: 0.5px solid #E8D9C0 !important;
+    border-radius: 8px !important;
+    background-color: #FFFFFF !important;
+}
+[data-testid="stExpander"] summary {
+    color: #633806 !important;
+    font-weight: 500 !important;
+    font-size: 0.9rem !important;
+}
+
+/* ── Tabs ── */
+.stTabs [data-baseweb="tab-list"] {
+    border-bottom: 2px solid #E8D9C0 !important;
+    gap: 4px;
+}
+.stTabs [data-baseweb="tab"] {
+    color: #8A6E48 !important;
+    border-radius: 6px 6px 0 0 !important;
+}
+.stTabs [aria-selected="true"] {
+    color: #633806 !important;
+    border-bottom: 2px solid #EF9F27 !important;
+    font-weight: 500 !important;
+}
+
+/* ── DataFrames / tables ── */
+[data-testid="stDataFrame"] {
+    border: 0.5px solid #E8D9C0 !important;
+    border-radius: 8px !important;
+    overflow: hidden;
+}
+.dvn-scroller { background-color: #FFFFFF !important; }
+
+/* ── Info / success / warning boxes ── */
+[data-testid="stInfo"] {
+    background-color: #FAEEDA !important;
+    border-left-color: #EF9F27 !important;
+    color: #633806 !important;
+}
+[data-testid="stSuccess"] {
+    background-color: #E8F5EE !important;
+    border-left-color: #1D9E75 !important;
+}
+[data-testid="stWarning"] {
+    background-color: #FAEEDA !important;
+    border-left-color: #BA7517 !important;
+}
+
+/* ── Select boxes & inputs ── */
+[data-testid="stSelectbox"] > div,
+[data-testid="stMultiSelect"] > div {
+    border-color: #E8D9C0 !important;
+    background-color: #FFFFFF !important;
+}
+[data-testid="stTextInput"] input,
+[data-testid="stNumberInput"] input {
+    border-color: #E8D9C0 !important;
+    background-color: #FFFFFF !important;
+    color: #2C1F0F !important;
+}
+[data-testid="stTextInput"] input:focus,
+[data-testid="stNumberInput"] input:focus {
+    border-color: #EF9F27 !important;
+    box-shadow: 0 0 0 2px rgba(239,159,39,0.2) !important;
+}
+
+/* ── Dividers ── */
+hr {
+    border-color: #E8D9C0 !important;
+}
+
+/* ── Progress bar ── */
+[data-testid="stProgress"] > div > div {
+    background-color: #EF9F27 !important;
+}
+
+/* ── Spinner ── */
+[data-testid="stSpinner"] {
+    color: #EF9F27 !important;
+}
+
+/* ── Charts (st.bar_chart, st.line_chart) ── */
+[data-testid="stArrowVegaLiteChart"] canvas {
+    border-radius: 8px;
+}
+</style>
+""", unsafe_allow_html=True)
+
+
 @st.cache_resource
 def _bootstrap() -> None:
     """Ensure schema exists. Does NOT seed data — use seed_postgres.py for that."""
@@ -148,8 +336,13 @@ def style_dashboard(df: pd.DataFrame) -> pd.DataFrame:
 fcps = _cached_fcps()
 
 with st.sidebar:
-    st.title("📊 SVM Outil")
-    st.caption("Gestion FCP — BRVM")
+    st.markdown(
+        "<h2 style='color:#EFA823;font-size:1.2rem;margin-bottom:2px;'>"
+        "SVM · BRVM</h2>"
+        "<p style='color:#8A6E48;font-size:0.75rem;margin-bottom:1rem;'>"
+        "Gestion FCP — CGF GESTION</p>",
+        unsafe_allow_html=True,
+    )
 
     if not fcps:
         st.error("Aucun FCP en base. Initialisez les données dans Paramètres.")
