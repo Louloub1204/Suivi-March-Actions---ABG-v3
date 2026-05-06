@@ -55,10 +55,11 @@ st.markdown("""
 [data-testid="stSidebar"] {
     background-color: #2C1F0F !important;
 }
-[data-testid="stSidebar"] * {
+[data-testid="stSidebar"] > div:first-child {
     color: #D4B896 !important;
 }
-[data-testid="stSidebar"] .stRadio label {
+[data-testid="stSidebar"] .stRadio label,
+[data-testid="stSidebar"] .stRadio span {
     color: #D4B896 !important;
     font-size: 0.9rem;
 }
@@ -74,15 +75,29 @@ st.markdown("""
 [data-testid="stSidebar"] hr {
     border-color: #4A3010 !important;
 }
-[data-testid="stSidebar"] [data-testid="stSelectbox"] > div {
+[data-testid="stSidebar"] [data-testid="stSelectbox"] > div > div {
     background-color: #3A2810 !important;
     border-color: #5C3D18 !important;
     color: #FAC775 !important;
 }
-/* ── Active nav item highlight ── */
-[data-testid="stSidebar"] .stRadio [aria-checked="true"] + div {
+[data-testid="stSidebar"] label {
+    color: #BFA98A !important;
+}
+[data-testid="stSidebar"] [data-testid="stDateInput"] input {
+    background-color: #3A2810 !important;
+    border-color: #5C3D18 !important;
     color: #FAC775 !important;
-    font-weight: 500;
+}
+[data-testid="stSidebar"] [data-baseweb="select"] * {
+    color: #FAC775 !important;
+    background-color: #3A2810 !important;
+}
+[data-testid="stSidebar"] [data-baseweb="radio"] span {
+    color: #D4B896 !important;
+}
+[data-testid="stSidebar"] .stCaption,
+[data-testid="stSidebar"] small {
+    color: #8A6E48 !important;
 }
 
 /* ── Top bar / header ── */
@@ -97,6 +112,24 @@ st.markdown("""
 }
 .main .block-container {
     background-color: #FBF8F3 !important;
+}
+
+/* ── Main content text — always dark on light bg ── */
+.main p, .main span, .main div,
+[data-testid="stMainBlockContainer"] p,
+[data-testid="stMainBlockContainer"] span {
+    color: #2C1F0F;
+}
+
+/* ── Dataframe text — force dark, overrides any inherited color ── */
+[data-testid="stDataFrame"] * {
+    color: #2C1F0F !important;
+}
+.dvn-scroller {
+    background-color: #FFFFFF !important;
+}
+[data-testid="stDataFrame"] canvas {
+    color: #2C1F0F !important;
 }
 
 /* ── Metric cards ── */
@@ -121,6 +154,7 @@ st.markdown("""
 }
 
 /* ── Buttons ── */
+.stButton > button[kind="primary"],
 .stButton > button {
     background-color: #EF9F27 !important;
     color: #2C1F0F !important;
@@ -132,7 +166,6 @@ st.markdown("""
     background-color: #D98A1A !important;
     color: #2C1F0F !important;
 }
-/* Secondary / outline buttons (expanders, download) */
 .stDownloadButton > button {
     background-color: #FFFFFF !important;
     color: #633806 !important;
@@ -154,6 +187,9 @@ st.markdown("""
     font-weight: 500 !important;
     font-size: 0.9rem !important;
 }
+[data-testid="stExpander"] summary span {
+    color: #633806 !important;
+}
 
 /* ── Tabs ── */
 .stTabs [data-baseweb="tab-list"] {
@@ -170,14 +206,6 @@ st.markdown("""
     font-weight: 500 !important;
 }
 
-/* ── DataFrames / tables ── */
-[data-testid="stDataFrame"] {
-    border: 0.5px solid #E8D9C0 !important;
-    border-radius: 8px !important;
-    overflow: hidden;
-}
-.dvn-scroller { background-color: #FFFFFF !important; }
-
 /* ── Info / success / warning boxes ── */
 [data-testid="stInfo"] {
     background-color: #FAEEDA !important;
@@ -193,26 +221,26 @@ st.markdown("""
     border-left-color: #BA7517 !important;
 }
 
-/* ── Select boxes & inputs ── */
-[data-testid="stSelectbox"] > div,
-[data-testid="stMultiSelect"] > div {
+/* ── Select boxes & inputs (main content) ── */
+.main [data-testid="stSelectbox"] > div,
+.main [data-testid="stMultiSelect"] > div {
     border-color: #E8D9C0 !important;
     background-color: #FFFFFF !important;
 }
-[data-testid="stTextInput"] input,
-[data-testid="stNumberInput"] input {
+.main [data-testid="stTextInput"] input,
+.main [data-testid="stNumberInput"] input {
     border-color: #E8D9C0 !important;
     background-color: #FFFFFF !important;
     color: #2C1F0F !important;
 }
-[data-testid="stTextInput"] input:focus,
-[data-testid="stNumberInput"] input:focus {
+.main [data-testid="stTextInput"] input:focus,
+.main [data-testid="stNumberInput"] input:focus {
     border-color: #EF9F27 !important;
     box-shadow: 0 0 0 2px rgba(239,159,39,0.2) !important;
 }
 
 /* ── Dividers ── */
-hr {
+.main hr {
     border-color: #E8D9C0 !important;
 }
 
@@ -221,15 +249,11 @@ hr {
     background-color: #EF9F27 !important;
 }
 
-/* ── Spinner ── */
-[data-testid="stSpinner"] {
-    color: #EF9F27 !important;
+/* ── Headings in main content ── */
+.main h1, .main h2, .main h3 {
+    color: #2C1F0F !important;
 }
-
-/* ── Charts (st.bar_chart, st.line_chart) ── */
-[data-testid="stArrowVegaLiteChart"] canvas {
-    border-radius: 8px;
-}
+.main h1 { border-bottom: 2px solid #EF9F27; padding-bottom: 0.3rem; }
 </style>
 """, unsafe_allow_html=True)
 
