@@ -55,10 +55,11 @@ st.markdown("""
 [data-testid="stSidebar"] {
     background-color: #2C1F0F !important;
 }
-[data-testid="stSidebar"] * {
+[data-testid="stSidebar"] > div:first-child {
     color: #D4B896 !important;
 }
-[data-testid="stSidebar"] .stRadio label {
+[data-testid="stSidebar"] .stRadio label,
+[data-testid="stSidebar"] .stRadio span {
     color: #D4B896 !important;
     font-size: 0.9rem;
 }
@@ -74,15 +75,29 @@ st.markdown("""
 [data-testid="stSidebar"] hr {
     border-color: #4A3010 !important;
 }
-[data-testid="stSidebar"] [data-testid="stSelectbox"] > div {
+[data-testid="stSidebar"] [data-testid="stSelectbox"] > div > div {
     background-color: #3A2810 !important;
     border-color: #5C3D18 !important;
     color: #FAC775 !important;
 }
-/* ── Active nav item highlight ── */
-[data-testid="stSidebar"] .stRadio [aria-checked="true"] + div {
+[data-testid="stSidebar"] label {
+    color: #BFA98A !important;
+}
+[data-testid="stSidebar"] [data-testid="stDateInput"] input {
+    background-color: #3A2810 !important;
+    border-color: #5C3D18 !important;
     color: #FAC775 !important;
-    font-weight: 500;
+}
+[data-testid="stSidebar"] [data-baseweb="select"] * {
+    color: #FAC775 !important;
+    background-color: #3A2810 !important;
+}
+[data-testid="stSidebar"] [data-baseweb="radio"] span {
+    color: #D4B896 !important;
+}
+[data-testid="stSidebar"] .stCaption,
+[data-testid="stSidebar"] small {
+    color: #8A6E48 !important;
 }
 
 /* ── Top bar / header ── */
@@ -97,6 +112,59 @@ st.markdown("""
 }
 .main .block-container {
     background-color: #FBF8F3 !important;
+}
+
+/* ── Main content text — always dark on light bg ── */
+.main p, .main span, .main div,
+[data-testid="stMainBlockContainer"] p,
+[data-testid="stMainBlockContainer"] span {
+    color: #2C1F0F;
+}
+
+/* ── Dataframe text — force dark, overrides any inherited color ── */
+[data-testid="stDataFrame"] * {
+    color: #2C1F0F !important;
+}
+.dvn-scroller {
+    background-color: #FFFFFF !important;
+}
+[data-testid="stDataFrame"] canvas {
+    color: #2C1F0F !important;
+}
+
+/* ── st.table (HTML table) ── */
+[data-testid="stTable"] table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.85rem;
+    color: #2C1F0F !important;
+    background-color: #FFFFFF;
+    border: 0.5px solid #E8D9C0;
+    border-radius: 8px;
+    overflow: hidden;
+}
+[data-testid="stTable"] thead tr {
+    background-color: #F2EBE0 !important;
+    border-bottom: 1px solid #E8D9C0;
+}
+[data-testid="stTable"] thead th {
+    color: #633806 !important;
+    font-weight: 500 !important;
+    padding: 8px 12px !important;
+    font-size: 0.8rem !important;
+    text-align: left;
+}
+[data-testid="stTable"] tbody tr:nth-child(even) {
+    background-color: #FBF8F3 !important;
+}
+[data-testid="stTable"] tbody tr:hover {
+    background-color: #FAEEDA !important;
+}
+[data-testid="stTable"] tbody td {
+    color: #2C1F0F !important;
+    padding: 6px 12px !important;
+    font-size: 0.83rem !important;
+    border-bottom: 0.5px solid #F0E8DA;
 }
 
 /* ── Metric cards ── */
@@ -121,6 +189,7 @@ st.markdown("""
 }
 
 /* ── Buttons ── */
+.stButton > button[kind="primary"],
 .stButton > button {
     background-color: #EF9F27 !important;
     color: #2C1F0F !important;
@@ -132,7 +201,6 @@ st.markdown("""
     background-color: #D98A1A !important;
     color: #2C1F0F !important;
 }
-/* Secondary / outline buttons (expanders, download) */
 .stDownloadButton > button {
     background-color: #FFFFFF !important;
     color: #633806 !important;
@@ -154,6 +222,9 @@ st.markdown("""
     font-weight: 500 !important;
     font-size: 0.9rem !important;
 }
+[data-testid="stExpander"] summary span {
+    color: #633806 !important;
+}
 
 /* ── Tabs ── */
 .stTabs [data-baseweb="tab-list"] {
@@ -170,14 +241,6 @@ st.markdown("""
     font-weight: 500 !important;
 }
 
-/* ── DataFrames / tables ── */
-[data-testid="stDataFrame"] {
-    border: 0.5px solid #E8D9C0 !important;
-    border-radius: 8px !important;
-    overflow: hidden;
-}
-.dvn-scroller { background-color: #FFFFFF !important; }
-
 /* ── Info / success / warning boxes ── */
 [data-testid="stInfo"] {
     background-color: #FAEEDA !important;
@@ -193,26 +256,26 @@ st.markdown("""
     border-left-color: #BA7517 !important;
 }
 
-/* ── Select boxes & inputs ── */
-[data-testid="stSelectbox"] > div,
-[data-testid="stMultiSelect"] > div {
+/* ── Select boxes & inputs (main content) ── */
+.main [data-testid="stSelectbox"] > div,
+.main [data-testid="stMultiSelect"] > div {
     border-color: #E8D9C0 !important;
     background-color: #FFFFFF !important;
 }
-[data-testid="stTextInput"] input,
-[data-testid="stNumberInput"] input {
+.main [data-testid="stTextInput"] input,
+.main [data-testid="stNumberInput"] input {
     border-color: #E8D9C0 !important;
     background-color: #FFFFFF !important;
     color: #2C1F0F !important;
 }
-[data-testid="stTextInput"] input:focus,
-[data-testid="stNumberInput"] input:focus {
+.main [data-testid="stTextInput"] input:focus,
+.main [data-testid="stNumberInput"] input:focus {
     border-color: #EF9F27 !important;
     box-shadow: 0 0 0 2px rgba(239,159,39,0.2) !important;
 }
 
 /* ── Dividers ── */
-hr {
+.main hr {
     border-color: #E8D9C0 !important;
 }
 
@@ -221,15 +284,11 @@ hr {
     background-color: #EF9F27 !important;
 }
 
-/* ── Spinner ── */
-[data-testid="stSpinner"] {
-    color: #EF9F27 !important;
+/* ── Headings in main content ── */
+.main h1, .main h2, .main h3 {
+    color: #2C1F0F !important;
 }
-
-/* ── Charts (st.bar_chart, st.line_chart) ── */
-[data-testid="stArrowVegaLiteChart"] canvas {
-    border-radius: 8px;
-}
+.main h1 { border-bottom: 2px solid #EF9F27; padding-bottom: 0.3rem; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -311,23 +370,71 @@ def fmt_pct(v: float, signed: bool = False) -> str:
     return f"{v*100:,.2f}%".replace(",", " ")
 
 
-def style_dashboard(df: pd.DataFrame) -> pd.DataFrame:
-    arrow = df["variation"].apply(lambda v: "▲" if v > 0 else ("▼" if v < 0 else "•"))
-    out = pd.DataFrame({
-        "": arrow,
-        "Symbole": df["ticker"],
-        "Quantité": df["quantite"].map(lambda v: f"{v:,.0f}".replace(",", " ")),
-        "CMP": df["cmp"].map(lambda v: f"{v:,.2f}".replace(",", " ")),
-        "Coût total": df["cout_total"].map(fmt_xof),
-        "Valorisation": df["valorisation"].map(fmt_xof),
-        "+/- estim.": df["diff_estim"].map(lambda v: fmt_xof(v, signed=True)),
-        "Poids": df["poids"].map(fmt_pct),
-        "Cours veille": df["prev_close"].map(lambda v: f"{v:,.0f}".replace(",", " ")),
-        "Cours jour": df["close"].map(lambda v: f"{v:,.0f}".replace(",", " ")),
-        "Variation": df["variation"].map(lambda v: fmt_xof(v, signed=True)),
-        "+/- value jour": df["plus_moins_value"].map(lambda v: fmt_xof(v, signed=True)),
-    })
-    return out
+def render_table(
+    df: pd.DataFrame,
+    height: int | None = None,
+    color_cols: list[str] | None = None,
+) -> None:
+    """Render a DataFrame as a styled HTML table — bypasses Canvas/WebGL.
+
+    All values should be pre-formatted as strings before calling.
+    color_cols: columns whose values starting with + or ▲ get green,
+                and starting with - or ▼ get red.
+    """
+    color_cols = set(color_cols or [])
+    df = df.copy()
+
+    # Convert any remaining raw numerics to strings
+    for col in df.columns:
+        if pd.api.types.is_float_dtype(df[col]) or pd.api.types.is_integer_dtype(df[col]):
+            df[col] = df[col].map(
+                lambda v: "-" if pd.isna(v)
+                else f"{v:,.0f}".replace(",", " ")
+            )
+        else:
+            df[col] = df[col].fillna("-").astype(str)
+
+    td_base = "padding:6px 11px;white-space:nowrap;font-size:0.82rem;"
+
+    def _td(col: str, val: str) -> str:
+        s = str(val).strip()
+        if col not in color_cols:
+            return f"<td style='{td_base}'>{s}</td>"
+        if s.startswith("+") or s.startswith("▲"):
+            return (f"<td style='{td_base}color:#1A6B3E;font-weight:500;'>"
+                    f"▲ {s.lstrip('+▲').strip()}</td>")
+        elif s.startswith("-") or s.startswith("▼"):
+            return (f"<td style='{td_base}color:#B53A2F;font-weight:500;'>"
+                    f"▼ {s.lstrip('-▼').strip()}</td>")
+        else:
+            return f"<td style='{td_base}color:#8A6E48;'>{s}</td>"
+
+    th_style = (
+        "style='background:#F2EBE0;color:#633806;font-weight:500;"
+        "padding:7px 11px;font-size:0.79rem;text-align:left;"
+        "border-bottom:1px solid #E8D9C0;white-space:nowrap;'"
+    )
+    header = "".join(f"<th {th_style}>{c}</th>" for c in df.columns)
+
+    rows_html = ""
+    for i, (_, row) in enumerate(df.iterrows()):
+        bg = "#FFFFFF" if i % 2 == 0 else "#FBF8F3"
+        cells = "".join(_td(col, str(row[col])) for col in df.columns)
+        rows_html += (
+            f"<tr style='background:{bg};"
+            f"border-bottom:0.5px solid #F0E8DA;'>{cells}</tr>"
+        )
+
+    scroll = f"max-height:{height}px;overflow-y:auto;" if height else ""
+    st.markdown(
+        f"<div style='overflow-x:auto;{scroll}border:0.5px solid #E8D9C0;"
+        f"border-radius:8px;background:#FFFFFF;margin-bottom:0.5rem;'>"
+        f"<table style='width:100%;border-collapse:collapse;color:#2C1F0F;'>"
+        f"<thead><tr>{header}</tr></thead>"
+        f"<tbody>{rows_html}</tbody>"
+        f"</table></div>",
+        unsafe_allow_html=True,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -417,19 +524,40 @@ if page == "📈 Tableau de bord":
         rows_zero = rows[rows["quantite"] == 0]
 
         st.subheader("Positions actives")
-        st.dataframe(
-            style_dashboard(rows_active),
-            use_container_width=True,
-            hide_index=True,
-            height=min(600, 35 + 35 * len(rows_active)),
+        render_table(
+            pd.DataFrame({
+                "Symbole": rows_active["ticker"],
+                "Quantité": rows_active["quantite"].map(lambda v: f"{v:,.0f}".replace(",", " ")),
+                "CMP": rows_active["cmp"].map(lambda v: f"{v:,.2f}".replace(",", " ")),
+                "Coût total": rows_active["cout_total"].map(fmt_xof),
+                "Valorisation": rows_active["valorisation"].map(fmt_xof),
+                "+/- estim.": rows_active["diff_estim"].map(lambda v: fmt_xof(v, signed=True)),
+                "Poids": rows_active["poids"].map(fmt_pct),
+                "Cours veille": rows_active["prev_close"].map(lambda v: f"{v:,.0f}".replace(",", " ") if v else "-"),
+                "Cours jour": rows_active["close"].map(lambda v: f"{v:,.0f}".replace(",", " ") if v else "-"),
+                "Variation": rows_active["variation"].map(lambda v: fmt_xof(v, signed=True)),
+                "+/- value jour": rows_active["plus_moins_value"].map(lambda v: fmt_xof(v, signed=True)),
+            }),
+            color_cols=["+/- estim.", "Variation", "+/- value jour"],
         )
 
         if not rows_zero.empty:
             with st.expander(f"Lignes soldées ({len(rows_zero)})"):
-                st.dataframe(
-                    style_dashboard(rows_zero),
-                    use_container_width=True,
-                    hide_index=True,
+                render_table(
+                    pd.DataFrame({
+                        "Symbole": rows_zero["ticker"],
+                        "Quantité": rows_zero["quantite"].map(lambda v: f"{v:,.0f}".replace(",", " ")),
+                        "CMP": rows_zero["cmp"].map(lambda v: f"{v:,.2f}".replace(",", " ")),
+                        "Coût total": rows_zero["cout_total"].map(fmt_xof),
+                        "Valorisation": rows_zero["valorisation"].map(fmt_xof),
+                        "+/- estim.": rows_zero["diff_estim"].map(lambda v: fmt_xof(v, signed=True)),
+                        "Poids": rows_zero["poids"].map(fmt_pct),
+                        "Cours veille": rows_zero["prev_close"].map(lambda v: f"{v:,.0f}".replace(",", " ") if v else "-"),
+                        "Cours jour": rows_zero["close"].map(lambda v: f"{v:,.0f}".replace(",", " ") if v else "-"),
+                        "Variation": rows_zero["variation"].map(lambda v: fmt_xof(v, signed=True)),
+                        "+/- value jour": rows_zero["plus_moins_value"].map(lambda v: fmt_xof(v, signed=True)),
+                    }),
+                    color_cols=["+/- estim.", "Variation", "+/- value jour"],
                 )
 
         st.divider()
@@ -444,14 +572,24 @@ if page == "📈 Tableau de bord":
 
         with col_b:
             st.subheader("Top mouvements du jour")
-            top = rows_active.assign(abs_var=rows_active["plus_moins_value"].abs())
-            top = top.nlargest(10, "abs_var")[["ticker", "plus_moins_value", "variation"]]
-            top = top.rename(columns={
-                "ticker": "Symbole",
-                "plus_moins_value": "+/- value",
-                "variation": "Variation unitaire",
+            _top_raw = (
+                rows_active
+                .assign(_abs=rows_active["plus_moins_value"].abs())
+                .nlargest(10, "_abs")
+            )
+            _top_mov = pd.DataFrame({
+                "Symbole": _top_raw["ticker"].values,
+                "+/- value jour": _top_raw["plus_moins_value"].map(
+                    lambda v: fmt_xof(v, signed=True)
+                ).values,
+                "Variation unitaire": _top_raw["variation"].map(
+                    lambda v: fmt_xof(v, signed=True)
+                ).values,
             })
-            st.dataframe(top, use_container_width=True, hide_index=True)
+            render_table(
+                _top_mov,
+                color_cols=["+/- value jour", "Variation unitaire"],
+            )
 
         st.download_button(
             "⬇️ Exporter le tableau (CSV)",
@@ -467,10 +605,6 @@ if page == "📈 Tableau de bord":
 elif page == "📊 Récap variations":
     st.header("Récap variations — tous les FCPs")
     as_of_ts = pd.Timestamp(as_of)
-    st.caption(
-        f"Variations à la date du **{as_of_ts.strftime('%d/%m/%Y')}** — "
-        f"YTD calculé depuis le 01/01/{as_of_ts.year}"
-    )
 
     with st.spinner("Calcul des variations pour les 24 FCPs…"):
         tx_all = _cached_transactions()
@@ -479,62 +613,249 @@ elif page == "📊 Récap variations":
         divs_by_fcp = _cached_dividends_all(tuple(all_fcps))
         recap = compute_recap(tx_all, prices, all_fcps, as_of_ts, divs_by_fcp)
 
-    if recap.empty:
-        st.info("Aucune donnée à afficher.")
-    else:
-        # Aggregate header KPIs
-        col1, col2, col3, col4 = st.columns(4)
-        total_valo_all = float(recap["Valorisation"].sum())
-        total_var_jour = float(recap["Var. jour"].sum())
-        total_var_ytd = float(recap["Var. YTD"].sum())
-        col1.metric("Valorisation totale", fmt_xof(total_valo_all))
-        col2.metric("Variation jour cumulée", fmt_xof(total_var_jour, signed=True))
-        col3.metric("Variation YTD cumulée", fmt_xof(total_var_ytd, signed=True))
-        col4.metric("FCPs actifs", f"{(recap['Valorisation']>0).sum()} / {len(recap)}")
+    tab_day, tab_period = st.tabs(["📅 Variation du jour / YTD", "📆 Analyse sur période"])
 
-        st.divider()
-
-        display = recap.copy()
-        display["Valorisation"] = display["Valorisation"].map(fmt_xof)
-        display["Var. jour"] = display["Var. jour"].map(lambda v: fmt_xof(v, signed=True))
-        display["Var. jour %"] = display["Var. jour %"].map(fmt_pct)
-        display["Valo début année"] = display["Valo début année"].map(fmt_xof)
-        display["Var. YTD"] = display["Var. YTD"].map(lambda v: fmt_xof(v, signed=True))
-        display["Var. YTD %"] = display["Var. YTD %"].map(fmt_pct)
-
-        st.dataframe(display, use_container_width=True, hide_index=True)
-
-        st.download_button(
-            "⬇️ Exporter le récap (CSV)",
-            data=recap.to_csv(index=False).encode("utf-8"),
-            file_name=f"recap_variations_{as_of_ts.date()}.csv",
-            mime="text/csv",
+    # ── Tab 1: Day / YTD ─────────────────────────────────────────────────────
+    with tab_day:
+        st.caption(
+            f"Variations à la date du **{as_of_ts.strftime('%d/%m/%Y')}** — "
+            f"YTD calculé depuis le 01/01/{as_of_ts.year}"
         )
 
-        st.divider()
-        col_a, col_b = st.columns(2)
-        with col_a:
-            st.subheader("Top variations du jour")
-            top_day = (
-                recap.assign(abs_=recap["Var. jour"].abs())
-                .nlargest(10, "abs_")[["FCP", "Var. jour", "Var. jour %"]]
+        if recap.empty:
+            st.info("Aucune donnée à afficher.")
+        else:
+            col1, col2, col3, col4 = st.columns(4)
+            total_valo_all = float(recap["Valorisation"].sum())
+            total_var_jour = float(recap["Var. jour"].sum())
+            total_var_ytd  = float(recap["Var. YTD"].sum())
+            col1.metric("Valorisation totale", fmt_xof(total_valo_all))
+            col2.metric("Variation jour cumulée", fmt_xof(total_var_jour, signed=True))
+            col3.metric("Variation YTD cumulée", fmt_xof(total_var_ytd, signed=True))
+            col4.metric("FCPs actifs",
+                        f"{(recap['Valorisation']>0).sum()} / {len(recap)}")
+
+            st.divider()
+
+            display = recap.copy()
+            display["Valorisation"]   = display["Valorisation"].map(fmt_xof)
+            display["Var. jour"]      = display["Var. jour"].map(lambda v: fmt_xof(v, signed=True))
+            display["Var. jour %"]    = display["Var. jour %"].map(fmt_pct)
+            display["Valo début année"] = display["Valo début année"].map(fmt_xof)
+            display["Var. YTD"]       = display["Var. YTD"].map(lambda v: fmt_xof(v, signed=True))
+            display["Var. YTD %"]     = display["Var. YTD %"].map(fmt_pct)
+
+            render_table(display, height=None,
+                         color_cols=["Var. jour","Var. jour %",
+                                     "Var. YTD","Var. YTD %"])
+
+            col_csv, col_pdf = st.columns([1, 1])
+            with col_csv:
+                st.download_button(
+                    "⬇️ Exporter le récap (CSV)",
+                    data=recap.to_csv(index=False).encode("utf-8"),
+                    file_name=f"recap_variations_{as_of_ts.date()}.csv",
+                    mime="text/csv",
+                )
+            with col_pdf:
+                if st.button("📄 Générer le rapport PDF", type="primary",
+                             key="gen_pdf"):
+                    with st.spinner("Analyse des drivers de performance…"):
+                        try:
+                            from report_pdf import generate_report
+                            from portfolio import (
+                                compute_action_drivers,
+                                aggregate_drivers_by_ticker,
+                            )
+                            from sectors import _load as _load_sectors
+                            drivers = compute_action_drivers(
+                                tx_all, prices, all_fcps, as_of_ts, divs_by_fcp,
+                            )
+                            by_ticker = aggregate_drivers_by_ticker(drivers)
+                            sectors_map = _load_sectors()
+                            pdf_bytes = generate_report(
+                                drivers=drivers, by_ticker=by_ticker,
+                                as_of=as_of_ts, sectors_map=sectors_map,
+                                recap=recap,
+                            )
+                            st.download_button(
+                                "⬇️ Télécharger le rapport",
+                                data=pdf_bytes,
+                                file_name=f"rapport_analytics_actions_{as_of_ts.date()}.pdf",
+                                mime="application/pdf",
+                                key="dl_pdf_report",
+                            )
+                        except Exception as e:
+                            st.error(f"Génération PDF impossible : {e}")
+
+            st.divider()
+            col_a, col_b = st.columns(2)
+            with col_a:
+                st.subheader("Top variations du jour")
+                top_day = (
+                    recap.assign(abs_=recap["Var. jour"].abs())
+                    .nlargest(10, "abs_")[["FCP","Var. jour","Var. jour %"]]
+                )
+                top_day["Var. jour"]   = top_day["Var. jour"].map(lambda v: fmt_xof(v, signed=True))
+                top_day["Var. jour %"] = top_day["Var. jour %"].map(fmt_pct)
+                render_table(top_day, height=None,
+                             color_cols=["Var. jour","Var. jour %"])
+            with col_b:
+                st.subheader("Top variations YTD")
+                top_ytd = (
+                    recap.assign(abs_=recap["Var. YTD"].abs())
+                    .nlargest(10, "abs_")[["FCP","Var. YTD","Var. YTD %"]]
+                )
+                top_ytd["Var. YTD"]   = top_ytd["Var. YTD"].map(lambda v: fmt_xof(v, signed=True))
+                top_ytd["Var. YTD %"] = top_ytd["Var. YTD %"].map(fmt_pct)
+                render_table(top_ytd, height=None,
+                             color_cols=["Var. YTD","Var. YTD %"])
+
+    # ── Tab 2: Analyse sur période ────────────────────────────────────────────
+    with tab_period:
+        st.subheader("Analyse de performance sur une période personnalisée")
+        st.caption(
+            "Calcul basé sur les positions réelles à chaque date "
+            "(transactions jusqu'à la date de début, transactions jusqu'à la date de fin). "
+            "La **variation nette** déduit les flux d'investissement (achats − ventes) "
+            "pour isoler la performance pure du marché."
+        )
+
+        col_d1, col_d2, col_mode = st.columns([1, 1, 2])
+        with col_d1:
+            default_start = pd.Timestamp(year=as_of_ts.year, month=1, day=1).date()
+            period_start = st.date_input(
+                "Date de début",
+                value=default_start,
+                key="period_start",
             )
-            top_day["Var. jour"] = top_day["Var. jour"].map(
-                lambda v: fmt_xof(v, signed=True)
+        with col_d2:
+            period_end = st.date_input(
+                "Date de fin",
+                value=as_of_ts.date(),
+                key="period_end",
             )
-            top_day["Var. jour %"] = top_day["Var. jour %"].map(fmt_pct)
-            st.dataframe(top_day, use_container_width=True, hide_index=True)
-        with col_b:
-            st.subheader("Top variations YTD")
-            top_ytd = (
-                recap.assign(abs_=recap["Var. YTD"].abs())
-                .nlargest(10, "abs_")[["FCP", "Var. YTD", "Var. YTD %"]]
+        with col_mode:
+            show_mode = st.radio(
+                "Affichage",
+                ["Variation nette (performance pure)",
+                 "Variation brute",
+                 "Les deux"],
+                horizontal=True,
+                key="period_mode",
             )
-            top_ytd["Var. YTD"] = top_ytd["Var. YTD"].map(
-                lambda v: fmt_xof(v, signed=True)
-            )
-            top_ytd["Var. YTD %"] = top_ytd["Var. YTD %"].map(fmt_pct)
-            st.dataframe(top_ytd, use_container_width=True, hide_index=True)
+
+        if period_start >= period_end:
+            st.warning("La date de début doit être strictement antérieure à la date de fin.")
+        else:
+            with st.spinner(
+                f"Calcul des performances "
+                f"{pd.Timestamp(period_start).strftime('%d/%m/%Y')} → "
+                f"{pd.Timestamp(period_end).strftime('%d/%m/%Y')}…"
+            ):
+                from portfolio import compute_period_perf
+                period_result = compute_period_perf(
+                    tx_all, prices, all_fcps,
+                    pd.Timestamp(period_start),
+                    pd.Timestamp(period_end),
+                    divs_by_fcp,
+                )
+
+            if period_result.empty:
+                st.info("Aucune donnée disponible.")
+            else:
+                n_days = (pd.Timestamp(period_end) - pd.Timestamp(period_start)).days
+                period_label = (
+                    f"{pd.Timestamp(period_start).strftime('%d/%m/%Y')} "
+                    f"→ {pd.Timestamp(period_end).strftime('%d/%m/%Y')} "
+                    f"({n_days} jours)"
+                )
+                st.caption(f"**Période :** {period_label}")
+
+                # KPIs
+                total_valo_fin = float(period_result["Valo fin"].sum())
+                total_var_nette = float(period_result["Variation nette"].sum())
+                total_var_brute = float(period_result["Variation brute"].sum())
+                total_flux = float(period_result["Flux nets"].sum())
+                n_pos = int((period_result["Variation nette"] > 0).sum())
+                n_neg = int((period_result["Variation nette"] < 0).sum())
+
+                c1,c2,c3,c4,c5 = st.columns(5)
+                c1.metric("Valo fin de période", fmt_xof(total_valo_fin))
+                c2.metric("Var. nette cumulée", fmt_xof(total_var_nette, signed=True))
+                c3.metric("Var. brute cumulée", fmt_xof(total_var_brute, signed=True))
+                c4.metric("Flux nets période", fmt_xof(total_flux, signed=True))
+                c5.metric("FCPs ↑ / ↓", f"{n_pos} / {n_neg}")
+
+                st.divider()
+
+                # Build display table according to mode
+                pr = period_result.copy()
+                base_cols = {
+                    "FCP":         pr["FCP"],
+                    "Valo début":  pr["Valo début"].map(fmt_xof),
+                    "Valo fin":    pr["Valo fin"].map(fmt_xof),
+                    "Flux nets":   pr["Flux nets"].map(lambda v: fmt_xof(v, signed=True)),
+                }
+                nette_cols = {
+                    "Var. nette":   pr["Variation nette"].map(lambda v: fmt_xof(v, signed=True)),
+                    "Var. nette %": pr["Variation nette %"].map(lambda v: fmt_pct(v, signed=True)),
+                }
+                brute_cols = {
+                    "Var. brute":   pr["Variation brute"].map(lambda v: fmt_xof(v, signed=True)),
+                    "Var. brute %": pr["Variation brute %"].map(lambda v: fmt_pct(v, signed=True)),
+                }
+
+                color_cols = []
+                if show_mode == "Variation nette (performance pure)":
+                    disp = pd.DataFrame({**base_cols, **nette_cols})
+                    color_cols = ["Var. nette","Var. nette %"]
+                elif show_mode == "Variation brute":
+                    disp = pd.DataFrame({**base_cols, **brute_cols})
+                    color_cols = ["Var. brute","Var. brute %"]
+                else:  # Les deux
+                    disp = pd.DataFrame({**base_cols, **nette_cols, **brute_cols})
+                    color_cols = ["Var. nette","Var. nette %","Var. brute","Var. brute %"]
+
+                render_table(disp, height=None, color_cols=color_cols)
+
+                # Top performers
+                st.divider()
+                col_p, col_n = st.columns(2)
+                with col_p:
+                    st.subheader("Top performances nettes")
+                    top_p = pr.nlargest(5, "Variation nette")[
+                        ["FCP","Variation nette","Variation nette %"]
+                    ].rename(columns={
+                        "Variation nette":   "Var. nette",
+                        "Variation nette %": "Var. nette %",
+                    })
+                    top_p["Var. nette"]   = top_p["Var. nette"].map(lambda v: fmt_xof(v, signed=True))
+                    top_p["Var. nette %"] = top_p["Var. nette %"].map(lambda v: fmt_pct(v, signed=True))
+                    render_table(top_p, height=None, color_cols=["Var. nette","Var. nette %"])
+                with col_n:
+                    st.subheader("Moins bonnes performances")
+                    top_n = pr.nsmallest(5, "Variation nette")[
+                        ["FCP","Variation nette","Variation nette %"]
+                    ].rename(columns={
+                        "Variation nette":   "Var. nette",
+                        "Variation nette %": "Var. nette %",
+                    })
+                    top_n["Var. nette"]   = top_n["Var. nette"].map(lambda v: fmt_xof(v, signed=True))
+                    top_n["Var. nette %"] = top_n["Var. nette %"].map(lambda v: fmt_pct(v, signed=True))
+                    render_table(top_n, height=None, color_cols=["Var. nette","Var. nette %"])
+
+                st.download_button(
+                    "⬇️ Exporter (CSV)",
+                    data=period_result.to_csv(index=False).encode("utf-8"),
+                    file_name=(
+                        f"perf_periode_"
+                        f"{pd.Timestamp(period_start).strftime('%Y%m%d')}_"
+                        f"{pd.Timestamp(period_end).strftime('%Y%m%d')}.csv"
+                    ),
+                    mime="text/csv",
+                    key="dl_period",
+                )
 
 
 # ---------------------------------------------------------------------------
@@ -630,7 +951,7 @@ elif page == "🎯 Expositions":
             }).copy()
             display_global["Valorisation"] = display_global["Valorisation"].map(fmt_xof)
             display_global["Poids"] = display_global["Poids"].map(fmt_pct)
-            st.dataframe(display_global, use_container_width=True, hide_index=True)
+            render_table(display_global, height=None)
 
             st.download_button(
                 "⬇️ Exporter (CSV)",
@@ -678,7 +999,7 @@ elif page == "🎯 Expositions":
         display_sector = sector_table.copy()
         display_sector["Valorisation"] = display_sector["Valorisation"].map(fmt_xof)
         display_sector["Poids global"] = display_sector["Poids global"].map(fmt_pct)
-        st.dataframe(display_sector, use_container_width=True, hide_index=True)
+        render_table(display_sector, height=None)
 
         # Sector × FCP matrix
         with st.expander("Voir la matrice secteurs × FCPs"):
@@ -701,26 +1022,38 @@ elif page == "🎯 Expositions":
                 total_row = m.sum(axis=0)
                 total_row.name = "TOTAL"
                 m = pd.concat([m, total_row.to_frame().T])
-                formatted = m.apply(lambda col: col.map(
-                    lambda v: f"{v:,.0f}".replace(",", " ") if v > 0 else "-"
+                formatted = m.reset_index().rename(
+                    columns={"secteur": "Secteur"}
+                ).apply(lambda col: col.map(
+                    lambda v: f"{v:,.0f}".replace(",", " ")
+                    if isinstance(v, (int, float)) and v > 0 else
+                    ("-" if isinstance(v, (int, float)) else str(v))
                 ))
                 export_sec_df = m
             elif sec_view_mode == "Poids dans le FCP":
                 fcp_totals = sector_fcp.sum(axis=0)
                 m = sector_fcp.div(fcp_totals, axis=1).fillna(0)
-                formatted = m.apply(lambda col: col.map(
-                    lambda v: f"{v*100:.1f}%" if v > 0 else "-"
+                formatted = m.reset_index().rename(
+                    columns={"secteur": "Secteur"}
+                ).apply(lambda col: col.map(
+                    lambda v: f"{v*100:.1f}%"
+                    if isinstance(v, (int, float)) and v > 0 else
+                    ("-" if isinstance(v, (int, float)) else str(v))
                 ))
                 export_sec_df = m
             else:  # Poids global
                 m = sector_fcp / total_global
                 m["TOTAL"] = m.sum(axis=1)
-                formatted = m.apply(lambda col: col.map(
-                    lambda v: f"{v*100:.2f}%" if v > 0 else "-"
+                formatted = m.reset_index().rename(
+                    columns={"secteur": "Secteur"}
+                ).apply(lambda col: col.map(
+                    lambda v: f"{v*100:.2f}%"
+                    if isinstance(v, (int, float)) and v > 0 else
+                    ("-" if isinstance(v, (int, float)) else str(v))
                 ))
                 export_sec_df = m
 
-            st.dataframe(formatted, use_container_width=True)
+            render_table(formatted, height=None)
 
             st.download_button(
                 "⬇️ Exporter la matrice sectorielle (CSV)",
@@ -753,14 +1086,12 @@ elif page == "🎯 Expositions":
             if view_mode_single == "Montant (FCFA)":
                 single["Valorisation"] = single["Valorisation"].map(fmt_xof)
                 single["Poids"] = single["Poids"].map(fmt_pct)
-                st.dataframe(single, use_container_width=True,
-                             hide_index=True, height=500)
+                render_table(single, height=500)
                 export_df = global_by_ticker
             else:
                 single["Valorisation"] = single["Valorisation"].map(fmt_xof)
                 single["Poids"] = single["Poids"].map(fmt_pct)
-                st.dataframe(single, use_container_width=True,
-                             hide_index=True, height=500)
+                render_table(single, height=500)
                 export_df = global_by_ticker
             st.download_button(
                 "⬇️ Exporter (CSV)",
@@ -791,28 +1122,40 @@ elif page == "🎯 Expositions":
                 total_row = matrix_display.sum(axis=0)
                 total_row.name = "TOTAL"
                 matrix_display = pd.concat([matrix_display, total_row.to_frame().T])
-                formatted = matrix_display.apply(lambda col: col.map(
-                    lambda v: f"{v:,.0f}".replace(",", " ") if v > 0 else "-"
+                formatted = matrix_display.reset_index().rename(
+                    columns={"ticker": "Ticker"}
+                ).apply(lambda col: col.map(
+                    lambda v: f"{v:,.0f}".replace(",", " ")
+                    if isinstance(v, (int, float)) and v > 0 else
+                    ("-" if isinstance(v, (int, float)) else str(v))
                 ))
-                st.dataframe(formatted, use_container_width=True, height=600)
+                render_table(formatted, height=600)
                 export_df = matrix_display
 
             elif view_mode == "Poids dans le FCP":
                 fcp_totals = matrix_val.sum(axis=0)
                 matrix_pct = matrix_val.div(fcp_totals, axis=1).fillna(0)
-                formatted = matrix_pct.apply(lambda col: col.map(
-                    lambda v: f"{v*100:.1f}%" if v > 0 else "-"
+                formatted = matrix_pct.reset_index().rename(
+                    columns={"ticker": "Ticker"}
+                ).apply(lambda col: col.map(
+                    lambda v: f"{v*100:.1f}%"
+                    if isinstance(v, (int, float)) and v > 0 else
+                    ("-" if isinstance(v, (int, float)) else str(v))
                 ))
-                st.dataframe(formatted, use_container_width=True, height=600)
+                render_table(formatted, height=600)
                 export_df = matrix_pct
 
             else:  # Poids global
                 matrix_pct = matrix_val / total_global
                 matrix_pct["TOTAL"] = matrix_pct.sum(axis=1)
-                formatted = matrix_pct.apply(lambda col: col.map(
-                    lambda v: f"{v*100:.2f}%" if v > 0 else "-"
+                formatted = matrix_pct.reset_index().rename(
+                    columns={"ticker": "Ticker"}
+                ).apply(lambda col: col.map(
+                    lambda v: f"{v*100:.2f}%"
+                    if isinstance(v, (int, float)) and v > 0 else
+                    ("-" if isinstance(v, (int, float)) else str(v))
                 ))
-                st.dataframe(formatted, use_container_width=True, height=600)
+                render_table(formatted, height=600)
                 export_df = matrix_pct
 
             st.download_button(
@@ -842,7 +1185,7 @@ elif page == "🎯 Expositions":
             display_conc["Valorisation"] = display_conc["Valorisation"].map(fmt_xof)
             for c in ["Top 1 %", "Top 3 %", "Top 5 %", "Top 10 %"]:
                 display_conc[c] = display_conc[c].map(fmt_pct)
-            st.dataframe(display_conc, use_container_width=True, hide_index=True)
+            render_table(display_conc, height=None)
 
             st.download_button(
                 "⬇️ Exporter (CSV)",
@@ -870,47 +1213,121 @@ elif page == "📋 Suivi des cibles":
 
     # ── Import de cibles ────────────────────────────────────────────────────
     with st.expander("📥 Importer les cibles (CSV ou Excel)", expanded=False):
+
+        # FCPs exclus de l'import global
+        EXCLUDED_FCPS = {"FCP AL BARAKA", "FCP AL BARAKA 2"}
+
         st.caption(
-            "Format attendu : colonnes **ticker**, **weight_pct** "
-            "(pondération cible en %), **amount_fcfa** (montant cible en FCFA). "
-            "Les deux colonnes cibles sont optionnelles (laisse vide si non renseignée). "
-            "L'import écrase toutes les cibles existantes pour ce FCP."
+            "**Format attendu** : colonnes **Name** (A), **Ticker** (B), "
+            "**Weight** (C, en décimal — ex: 0.0762 = 7.62%). "
+            "Les pondérations s'appliquent à **tous les FCPs** "
+            "sauf **FCP AL BARAKA** et **FCP AL BARAKA 2**."
         )
+
+        template_ntw = (
+            "Name,Ticker,Weight\n"
+            "NESTLE CI,NTLC,0.0762\n"
+            "SONATEL SN,SNTS,0.0857\n"
+            "ETI TG,ETIT,0.0810\n"
+        )
+        st.download_button(
+            "📄 Télécharger le modèle",
+            data=template_ntw.encode(),
+            file_name="modele_ponderations_cibles.csv",
+            mime="text/csv",
+            key="dl_tpl_ntw",
+        )
+
         up = st.file_uploader(
-            "Fichier de cibles (.csv ou .xlsx)",
+            "Fichier de pondérations (.xlsx ou .csv)",
             type=["csv", "xlsx"],
             key="targets_upload",
         )
+
         if up is not None:
             try:
                 if up.name.endswith(".xlsx"):
-                    df_up = pd.read_excel(up)
+                    raw = pd.read_excel(up, header=None)
                 else:
-                    df_up = pd.read_csv(up)
+                    raw = pd.read_csv(up, header=None)
 
-                # Normalize columns
-                df_up.columns = [c.strip().lower() for c in df_up.columns]
-                if "ticker" not in df_up.columns:
-                    st.error("Colonne 'ticker' manquante dans le fichier.")
+                # Detect if first row is a header
+                first_row = [str(v).strip().lower() for v in raw.iloc[0]]
+                if any(w in first_row for w in ["name","ticker","weight","symbole","poids"]):
+                    raw.columns = [str(v).strip().lower() for v in raw.iloc[0]]
+                    raw = raw.iloc[1:].reset_index(drop=True)
                 else:
-                    if "weight_pct" not in df_up.columns:
-                        df_up["weight_pct"] = None
-                    if "amount_fcfa" not in df_up.columns:
-                        df_up["amount_fcfa"] = None
-                    df_up["ticker"] = df_up["ticker"].astype(str).str.strip().str.upper()
-                    st.write(
-                        f"**{len(df_up)}** lignes détectées pour **{fcp}** :"
+                    raw.columns = [f"col{i}" for i in range(raw.shape[1])]
+                    raw.columns = ["name","ticker","weight"][:raw.shape[1]]
+
+                # Normalize to 3 columns
+                raw.columns = list(raw.columns)[:3]
+                raw.columns = ["name","ticker","weight"]
+                raw = raw.dropna(subset=["ticker"])
+                raw["ticker"] = raw["ticker"].astype(str).str.strip().str.upper()
+                raw["weight_pct"] = pd.to_numeric(raw["weight"], errors="coerce")
+                # Auto-convert if weights look like percentages (> 1)
+                if raw["weight_pct"].dropna().max() > 1.5:
+                    raw["weight_pct"] = raw["weight_pct"] / 100
+                raw["amount_fcfa"] = None
+                raw = raw[raw["weight_pct"].notna() & (raw["weight_pct"] > 0)]
+
+                total_w = float(raw["weight_pct"].sum())
+                target_fcps = [f for f in _cached_fcps() if f not in EXCLUDED_FCPS]
+
+                # Preview
+                st.write(
+                    f"**{len(raw)}** titres détectés  ·  "
+                    f"Poids total : **{total_w*100:.1f}%**  ·  "
+                    f"Application sur **{len(target_fcps)} FCPs**"
+                )
+                if abs(total_w - 1.0) > 0.01:
+                    st.warning(
+                        f"⚠️ Le poids total est {total_w*100:.2f}% "
+                        f"(attendu 100%). Vérifie les données avant de confirmer."
                     )
-                    st.dataframe(df_up[["ticker", "weight_pct", "amount_fcfa"]].head(10),
-                                 use_container_width=True, hide_index=True)
-                    if st.button("Confirmer l'import", key="targets_import_confirm"):
-                        n = db.replace_targets_for_fcp(fcp, df_up)
-                        _clear_data_cache()
-                        st.success(f"✅ {n} cibles chargées pour {fcp}.")
-                        st.rerun()
+
+                preview_df = raw[["name","ticker","weight_pct"]].copy()
+                preview_df["weight_pct"] = preview_df["weight_pct"].map(
+                    lambda v: f"{v*100:.2f}%"
+                )
+                preview_df.columns = ["Nom", "Ticker", "Poids cible"]
+                render_table(preview_df, height=350)
+
+                st.caption(
+                    "FCPs exclus : " + ", ".join(sorted(EXCLUDED_FCPS))
+                    + " — ces fonds conservent leurs cibles actuelles."
+                )
+
+                if st.button(
+                    "✅ Confirmer l'import sur tous les FCPs",
+                    key="targets_import_confirm",
+                    type="primary",
+                ):
+                    total_lines = 0
+                    errors = []
+                    for fcp_name in target_fcps:
+                        try:
+                            n = db.replace_targets_for_fcp(fcp_name, raw)
+                            total_lines += n
+                        except Exception as e_fcp:
+                            errors.append(f"{fcp_name}: {e_fcp}")
+                    _clear_data_cache()
+                    if errors:
+                        st.warning(
+                            f"Import partiel : {total_lines} lignes chargées. "
+                            f"Erreurs : {'; '.join(errors)}"
+                        )
+                    else:
+                        st.success(
+                            f"✅ {len(raw)} pondérations appliquées sur "
+                            f"{len(target_fcps)} FCPs "
+                            f"({total_lines} entrées au total)."
+                        )
+                    st.rerun()
+
             except Exception as e:
                 st.error(f"Lecture impossible : {e}")
-
     # ── Saisie manuelle ─────────────────────────────────────────────────────
     with st.expander("✏️ Saisie / modification manuelle des cibles", expanded=False):
         st.caption(
@@ -961,121 +1378,330 @@ elif page == "📋 Suivi des cibles":
 
     st.divider()
 
-    # ── Tableau de suivi ─────────────────────────────────────────────────────
-    targets_df = db.get_targets(fcp)
+    # ── Sélecteur de périmètre ───────────────────────────────────────────────
+    EXCLUDED_FROM_TARGETS = {"FCP AL BARAKA", "FCP AL BARAKA 2"}
+    eligible_fcps = [f for f in fcps if f not in EXCLUDED_FROM_TARGETS]
 
-    if targets_df.empty:
-        st.info(
-            "Aucune cible définie pour ce FCP. "
-            "Utilisez les panneaux ci-dessus pour importer ou saisir des cibles."
-        )
-    else:
-        tracking = compute_tracking(
-            tx_all, prices, targets_df, fcp, as_of_ts, divs
+    scope_options = ["Tous les FCPs"] + eligible_fcps
+    scope = st.selectbox(
+        "Périmètre d'analyse",
+        options=scope_options,
+        index=0,
+        key="tracking_scope",
+    )
+
+    # ── Vue globale — tous les FCPs ──────────────────────────────────────────
+    if scope == "Tous les FCPs":
+        st.subheader("Suivi des cibles — Vue globale nettée")
+        st.caption(
+            "Agrégation par titre sur tous les FCPs éligibles. "
+            "L'écart net est la somme des écarts individuels — "
+            "un écart ≈ 0 signale une transaction interne possible entre FCPs."
         )
 
-        if tracking.empty:
-            st.info("Aucune position ni cible à afficher.")
+        # Compute tracking for each eligible FCP
+        all_tracking_rows = []
+        for fcp_name in eligible_fcps:
+            targets_df_f = db.get_targets(fcp_name)
+            if targets_df_f.empty:
+                continue
+            divs_f = _cached_dividends_all(tuple(fcps)).get(fcp_name, {})
+            t = compute_tracking(
+                tx_all, prices, targets_df_f, fcp_name, as_of_ts, divs_f
+            )
+            if not t.empty:
+                t["FCP"] = fcp_name
+                all_tracking_rows.append(t)
+
+        if not all_tracking_rows:
+            st.info("Aucune cible définie. Utilisez le panneau d'import ci-dessus.")
         else:
-            # KPIs
-            n_achat = int((tracking["sens"] == "ACHAT").sum())
-            n_vente = int((tracking["sens"] == "VENTE").sum())
-            n_ok    = int((tracking["sens"] == "OK").sum())
-            total_a_acheter = tracking.loc[
-                tracking["sens"] == "ACHAT", "ecart_fcfa"
-            ].sum()
-            total_a_vendre = tracking.loc[
-                tracking["sens"] == "VENTE", "ecart_fcfa"
-            ].sum()
+            gt = pd.concat(all_tracking_rows, ignore_index=True)
 
-            c1, c2, c3, c4, c5 = st.columns(5)
-            c1.metric("Lignes ACHAT", n_achat)
-            c2.metric("Montant à acheter", fmt_xof(total_a_acheter))
-            c3.metric("Lignes VENTE", n_vente)
-            c4.metric("Montant à vendre", fmt_xof(abs(total_a_vendre)))
+            # ── Netting par ticker ──────────────────────────────────────────
+            agg = (
+                gt.groupby("ticker")
+                .agg(
+                    qty_totale=("quantite_actuelle", "sum"),
+                    valo_totale=("valo_actuelle", "sum"),
+                    ecart_fcfa_net=("ecart_fcfa", "sum"),
+                    qty_ecart_net=("quantite_ecart", "sum"),
+                    cible_pct=("cible_pct", "first"),
+                    cours=("cours", "first"),
+                    n_fcps=("FCP", "nunique"),
+                )
+                .reset_index()
+            )
+
+            # Global totals for weights
+            total_valo_global = float(agg["valo_totale"].sum())
+            agg["poids_actuel_global"] = agg["valo_totale"] / total_valo_global \
+                if total_valo_global else 0.0
+
+            # Derive cible_fcfa at global level from cible_pct × total valo
+            agg["cible_fcfa_global"] = agg.apply(
+                lambda r: r["cible_pct"] * total_valo_global
+                if pd.notna(r["cible_pct"]) else None,
+                axis=1,
+            )
+            agg["ecart_pct_net"] = agg.apply(
+                lambda r: r["cible_pct"] - r["poids_actuel_global"]
+                if pd.notna(r["cible_pct"]) else None,
+                axis=1,
+            )
+
+            # Determine net sens — threshold = half a share value
+            def _net_sens(row) -> str:
+                ef = row["ecart_fcfa_net"]
+                if pd.isna(ef):
+                    return "—"
+                cours_v = row["cours"] or 1
+                if abs(ef) < cours_v * 0.5:
+                    return "OK"
+                return "ACHAT" if ef > 0 else "VENTE"
+
+            agg["sens_net"] = agg.apply(_net_sens, axis=1)
+
+            # Detect inter-FCP opportunities: ticker has both ACHAT and VENTE
+            # in different FCPs → internal cross could offset
+            ticker_sens = gt.groupby("ticker")["sens"].apply(set)
+            agg["inter_fcp"] = agg["ticker"].map(
+                lambda t: "🔁" if {"ACHAT","VENTE"} <= ticker_sens.get(t, set())
+                else ""
+            )
+
+            # Sort: VENTE first, then ACHAT, then OK
+            _order = {"VENTE": 0, "ACHAT": 1, "OK": 2, "—": 3}
+            agg = agg.sort_values(
+                ["sens_net", "ecart_fcfa_net"],
+                key=lambda col: col.map(_order) if col.name == "sens_net"
+                                else col.abs(),
+                ascending=[True, False],
+            ).reset_index(drop=True)
+
+            # ── KPIs ──────────────────────────────────────────────────────
+            n_a  = int((agg["sens_net"] == "ACHAT").sum())
+            n_v  = int((agg["sens_net"] == "VENTE").sum())
+            n_ok = int((agg["sens_net"] == "OK").sum())
+            n_if = int((agg["inter_fcp"] == "🔁").sum())
+            tot_a = float(agg.loc[agg["sens_net"]=="ACHAT","ecart_fcfa_net"].sum())
+            tot_v = float(agg.loc[agg["sens_net"]=="VENTE","ecart_fcfa_net"].sum())
+
+            c1,c2,c3,c4,c5,c6 = st.columns(6)
+            c1.metric("Lignes ACHAT net", n_a)
+            c2.metric("Montant net à acheter", fmt_xof(tot_a))
+            c3.metric("Lignes VENTE nette", n_v)
+            c4.metric("Montant net à vendre", fmt_xof(abs(tot_v)))
             c5.metric("Lignes OK ✓", n_ok)
+            c6.metric("🔁 Transactions inter-FCP", n_if)
 
             st.divider()
 
-            # Color helper
-            def _row_color(sens: str) -> str:
-                return {"ACHAT": "🟢", "VENTE": "🔴", "OK": "✅", "—": "⚪"}.get(sens, "")
-
-            # Format for display
-            display = tracking.copy()
-            display[""] = display["sens"].map(
-                lambda s: {"ACHAT": "🟢", "VENTE": "🔴", "OK": "✅", "—": "⚪"}.get(s, "")
-            )
-            display["Cours"] = display["cours"].map(
-                lambda v: fmt_xof(v) if pd.notna(v) and v else "—"
-            )
-            display["Qté actuelle"] = display["quantite_actuelle"].map(
-                lambda v: f"{v:,.0f}".replace(",", " ") if v else "—"
-            )
-            display["Valo actuelle"] = display["valo_actuelle"].map(fmt_xof)
-            display["Poids actuel"] = display["poids_actuel"].map(fmt_pct)
-            display["Cible %"] = display["cible_pct"].map(
-                lambda v: fmt_pct(v) if pd.notna(v) and v is not None else "—"
-            )
-            display["Cible FCFA"] = display["cible_fcfa"].map(
-                lambda v: fmt_xof(v) if pd.notna(v) and v is not None else "—"
-            )
-            display["Écart FCFA"] = display["ecart_fcfa"].map(
-                lambda v: fmt_xof(v, signed=True) if pd.notna(v) and v is not None else "—"
-            )
-            display["Écart %"] = display["ecart_pct"].map(
-                lambda v: fmt_pct(v, signed=True) if pd.notna(v) and v is not None else "—"
-            )
-            display["Qté écart"] = display["quantite_ecart"].map(
-                lambda v: f"{v:+,.0f}".replace(",", " ") if pd.notna(v) and v is not None else "—"
-            )
-            display["Sens"] = display["sens"]
-
-            cols_show = [
-                "", "ticker", "Qté actuelle", "Cours", "Valo actuelle",
-                "Poids actuel", "Cible %", "Cible FCFA",
-                "Écart FCFA", "Écart %", "Qté écart", "Sens",
-            ]
-            st.dataframe(
-                display[cols_show].rename(columns={"ticker": "Ticker"}),
-                use_container_width=True,
-                hide_index=True,
-                height=600,
-            )
-
-            # Export
-            export_cols = [
-                "ticker", "quantite_actuelle", "cours", "valo_actuelle",
-                "poids_actuel", "cible_pct", "cible_fcfa",
-                "ecart_fcfa", "ecart_pct", "quantite_ecart", "sens",
-            ]
-            st.download_button(
-                "⬇️ Exporter le suivi (CSV)",
-                data=tracking[export_cols].to_csv(index=False).encode("utf-8"),
-                file_name=f"suivi_cibles_{fcp.replace(' ', '_')}_{as_of_ts.date()}.csv",
-                mime="text/csv",
-                key="dl_tracking",
-            )
-
-            # Cibles enregistrées (raw) en expander
-            with st.expander("📋 Cibles enregistrées pour ce FCP"):
-                raw_disp = targets_df.copy()
-                raw_disp["weight_pct"] = raw_disp["weight_pct"].map(
-                    lambda v: f"{v:.2f}%" if pd.notna(v) else "—"
-                )
-                raw_disp["amount_fcfa"] = raw_disp["amount_fcfa"].map(
+            # ── Tableau agrégé ─────────────────────────────────────────────
+            display_g = pd.DataFrame({
+                "": agg["sens_net"].map(
+                    {"ACHAT":"🟢","VENTE":"🔴","OK":"✅","—":"⚪"}
+                ),
+                "🔁": agg["inter_fcp"],
+                "Ticker":       agg["ticker"],
+                "Qté totale":   agg["qty_totale"].map(
+                    lambda v: f"{v:,.0f}".replace(",", " ") if v else "—"
+                ),
+                "Cours":        agg["cours"].map(
+                    lambda v: fmt_xof(v) if pd.notna(v) and v else "—"
+                ),
+                "Valo totale":  agg["valo_totale"].map(fmt_xof),
+                "Poids actuel": agg["poids_actuel_global"].map(fmt_pct),
+                "Cible %":      agg["cible_pct"].map(
+                    lambda v: fmt_pct(v) if pd.notna(v) else "—"
+                ),
+                "Cible FCFA":   agg["cible_fcfa_global"].map(
                     lambda v: fmt_xof(v) if pd.notna(v) else "—"
+                ),
+                "Écart net FCFA": agg["ecart_fcfa_net"].map(
+                    lambda v: fmt_xof(v, signed=True) if pd.notna(v) else "—"
+                ),
+                "Écart net %":  agg["ecart_pct_net"].map(
+                    lambda v: fmt_pct(v, signed=True) if pd.notna(v) else "—"
+                ),
+                "Qté écart nette": agg["qty_ecart_net"].map(
+                    lambda v: f"{v:+,.0f}".replace(",", " ")
+                    if pd.notna(v) else "—"
+                ),
+                "Nb FCPs": agg["n_fcps"].astype(str),
+                "Sens net": agg["sens_net"],
+            })
+            render_table(display_g, height=600,
+                         color_cols=["Écart net FCFA","Écart net %",
+                                     "Qté écart nette"])
+
+            # ── Transactions inter-FCP potentielles ────────────────────────
+            inter_tickers = agg[agg["inter_fcp"] == "🔁"]["ticker"].tolist()
+            if inter_tickers:
+                st.divider()
+                st.subheader("🔁 Transactions inter-FCP potentielles")
+                st.caption(
+                    "Ces titres ont des FCPs qui veulent acheter **et** d'autres "
+                    "qui veulent vendre. Une transaction interne entre FCPs "
+                    "pourrait solder tout ou partie de ces écarts sans passer "
+                    "par le marché."
                 )
-                st.dataframe(
-                    raw_disp[["ticker", "weight_pct", "amount_fcfa", "updated_at"]],
-                    use_container_width=True,
-                    hide_index=True,
+                inter_rows = []
+                for ticker in inter_tickers:
+                    rows_t = gt[gt["ticker"] == ticker].copy()
+                    rows_t = rows_t[rows_t["sens"].isin(["ACHAT","VENTE"])]
+                    rows_t = rows_t.sort_values("sens")
+                    cours_t = float(rows_t["cours"].iloc[0]) if not rows_t.empty else 0
+
+                    buy_fcps  = rows_t[rows_t["sens"]=="ACHAT"]
+                    sell_fcps = rows_t[rows_t["sens"]=="VENTE"]
+                    qty_buy   = float(buy_fcps["quantite_ecart"].sum())
+                    qty_sell  = abs(float(sell_fcps["quantite_ecart"].sum()))
+                    qty_match = min(qty_buy, qty_sell)
+                    valo_match = qty_match * cours_t
+
+                    inter_rows.append({
+                        "Ticker": ticker,
+                        "FCPs acheteurs": ", ".join(buy_fcps["FCP"].tolist()),
+                        "FCPs vendeurs":  ", ".join(sell_fcps["FCP"].tolist()),
+                        "Qté nettable":   f"{qty_match:,.0f}".replace(",", " "),
+                        "Montant nettable": fmt_xof(valo_match),
+                        "Cours":          fmt_xof(cours_t),
+                    })
+
+                inter_df = pd.DataFrame(inter_rows)
+                render_table(inter_df, height=None)
+
+            # ── Exports ────────────────────────────────────────────────────
+            col_e1, col_e2 = st.columns(2)
+            with col_e1:
+                st.download_button(
+                    "⬇️ Exporter la vue nettée (CSV)",
+                    data=agg.to_csv(index=False).encode("utf-8"),
+                    file_name=f"suivi_cibles_net_{as_of_ts.date()}.csv",
+                    mime="text/csv",
+                    key="dl_tracking_global",
                 )
-                if st.button("🗑️ Effacer toutes les cibles de ce FCP", key="clear_all_targets"):
-                    db.replace_targets_for_fcp(fcp, pd.DataFrame(columns=["ticker","weight_pct","amount_fcfa"]))
-                    _clear_data_cache()
-                    st.success("Toutes les cibles effacées.")
-                    st.rerun()
+            with col_e2:
+                if inter_tickers:
+                    st.download_button(
+                        "⬇️ Exporter les transactions inter-FCP (CSV)",
+                        data=inter_df.to_csv(index=False).encode("utf-8"),
+                        file_name=f"inter_fcp_{as_of_ts.date()}.csv",
+                        mime="text/csv",
+                        key="dl_inter_fcp",
+                    )
+
+    # ── Vue par FCP ──────────────────────────────────────────────────────────
+    else:
+        fcp_scope = scope
+        targets_df = db.get_targets(fcp_scope)
+        divs_scope = _cached_dividends_all(tuple(fcps)).get(fcp_scope, {})
+
+        if targets_df.empty:
+            st.info(
+                f"Aucune cible définie pour **{fcp_scope}**. "
+                "Utilisez le panneau d'import ci-dessus."
+            )
+        else:
+            tracking = compute_tracking(
+                tx_all, prices, targets_df, fcp_scope, as_of_ts, divs_scope
+            )
+
+            if tracking.empty:
+                st.info("Aucune position ni cible à afficher.")
+            else:
+                n_achat = int((tracking["sens"] == "ACHAT").sum())
+                n_vente = int((tracking["sens"] == "VENTE").sum())
+                n_ok    = int((tracking["sens"] == "OK").sum())
+                total_a_acheter = tracking.loc[
+                    tracking["sens"] == "ACHAT", "ecart_fcfa"
+                ].sum()
+                total_a_vendre = tracking.loc[
+                    tracking["sens"] == "VENTE", "ecart_fcfa"
+                ].sum()
+
+                c1, c2, c3, c4, c5 = st.columns(5)
+                c1.metric("Lignes ACHAT", n_achat)
+                c2.metric("Montant à acheter", fmt_xof(total_a_acheter))
+                c3.metric("Lignes VENTE", n_vente)
+                c4.metric("Montant à vendre", fmt_xof(abs(total_a_vendre)))
+                c5.metric("Lignes OK ✓", n_ok)
+
+                st.divider()
+
+                display = pd.DataFrame({
+                    "": tracking["sens"].map(
+                        lambda s: {"ACHAT":"🟢","VENTE":"🔴","OK":"✅","—":"⚪"}.get(s,"")
+                    ),
+                    "Ticker":       tracking["ticker"],
+                    "Qté actuelle": tracking["quantite_actuelle"].map(
+                        lambda v: f"{v:,.0f}".replace(",", " ") if v else "—"
+                    ),
+                    "Cours":        tracking["cours"].map(
+                        lambda v: fmt_xof(v) if pd.notna(v) and v else "—"
+                    ),
+                    "Valo actuelle":tracking["valo_actuelle"].map(fmt_xof),
+                    "Poids actuel": tracking["poids_actuel"].map(fmt_pct),
+                    "Cible %":      tracking["cible_pct"].map(
+                        lambda v: fmt_pct(v) if pd.notna(v) and v is not None else "—"
+                    ),
+                    "Cible FCFA":   tracking["cible_fcfa"].map(
+                        lambda v: fmt_xof(v) if pd.notna(v) and v is not None else "—"
+                    ),
+                    "Écart FCFA":   tracking["ecart_fcfa"].map(
+                        lambda v: fmt_xof(v, signed=True) if pd.notna(v) and v is not None else "—"
+                    ),
+                    "Écart %":      tracking["ecart_pct"].map(
+                        lambda v: fmt_pct(v, signed=True) if pd.notna(v) and v is not None else "—"
+                    ),
+                    "Qté écart":    tracking["quantite_ecart"].map(
+                        lambda v: f"{v:+,.0f}".replace(",", " ") if pd.notna(v) and v is not None else "—"
+                    ),
+                    "Sens":         tracking["sens"],
+                })
+                render_table(display, height=600,
+                             color_cols=["Écart FCFA","Écart %","Qté écart"])
+
+                export_cols = [
+                    "ticker","quantite_actuelle","cours","valo_actuelle",
+                    "poids_actuel","cible_pct","cible_fcfa",
+                    "ecart_fcfa","ecart_pct","quantite_ecart","sens",
+                ]
+                st.download_button(
+                    "⬇️ Exporter le suivi (CSV)",
+                    data=tracking[export_cols].to_csv(index=False).encode("utf-8"),
+                    file_name=(
+                        f"suivi_cibles_{fcp_scope.replace(' ','_')}"
+                        f"_{as_of_ts.date()}.csv"
+                    ),
+                    mime="text/csv",
+                    key="dl_tracking",
+                )
+
+                with st.expander(f"📋 Cibles enregistrées — {fcp_scope}"):
+                    raw_disp = targets_df.copy()
+                    raw_disp["weight_pct"] = raw_disp["weight_pct"].map(
+                        lambda v: f"{v*100:.2f}%" if pd.notna(v) else "—"
+                    )
+                    raw_disp["amount_fcfa"] = raw_disp["amount_fcfa"].map(
+                        lambda v: fmt_xof(v) if pd.notna(v) else "—"
+                    )
+                    render_table(
+                        raw_disp[["ticker","weight_pct","amount_fcfa","updated_at"]],
+                        height=None,
+                    )
+                    if st.button(
+                        f"🗑️ Effacer toutes les cibles de {fcp_scope}",
+                        key="clear_all_targets",
+                    ):
+                        db.replace_targets_for_fcp(
+                            fcp_scope,
+                            pd.DataFrame(columns=["ticker","weight_pct","amount_fcfa"]),
+                        )
+                        _clear_data_cache()
+                        st.success("Toutes les cibles effacées.")
+                        st.rerun()
 
 
 # ---------------------------------------------------------------------------
@@ -1210,11 +1836,31 @@ elif page == "💼 Transactions":
             mime="text/csv",
         )
 
-        st.dataframe(
-            tx[["id", "date", "ticker", "sens", "quantite", "prix", "valeur", "frais", "cost_in", "cost_out"]],
-            use_container_width=True,
-            hide_index=True,
-        )
+        tx_display = tx[["id","date","fcp","ticker","sens",
+                          "quantite","prix","valeur","frais",
+                          "cost_in","cost_out"]].copy()
+        tx_display = tx_display.rename(columns={
+            "id":       "ID",
+            "date":     "Date",
+            "fcp":      "FCP",
+            "ticker":   "Ticker",
+            "sens":     "Sens",
+            "quantite": "Quantité",
+            "prix":     "Prix",
+            "valeur":   "Valeur",
+            "frais":    "Frais",
+            "cost_in":  "Coût achat",
+            "cost_out": "Coût cession",
+        })
+        for col in ["Prix","Valeur","Frais","Coût achat","Coût cession"]:
+            tx_display[col] = pd.to_numeric(
+                tx_display[col], errors="coerce"
+            ).map(lambda v: "-" if pd.isna(v) or v == 0
+                  else f"{v:,.0f}".replace(",", " "))
+        tx_display["Quantité"] = pd.to_numeric(
+            tx_display["Quantité"], errors="coerce"
+        ).map(lambda v: f"{v:,.0f}".replace(",", " ") if pd.notna(v) else "-")
+        render_table(tx_display, height=500)
 
         with st.expander("🗑️ Supprimer une transaction"):
             tx_id_del = st.number_input("ID à supprimer", min_value=0, step=1, key="tx_del_id")
@@ -1287,11 +1933,7 @@ elif page == "🌐 Cours BRVM":
             display["variation_pct"] = display["variation_pct"].map(
                 lambda v: f"{v:+.2f}%" if pd.notna(v) else "-"
             )
-        st.dataframe(
-            display.drop(columns=["fetched_at"], errors="ignore"),
-            use_container_width=True,
-            hide_index=True,
-        )
+        render_table(display.drop(columns=["fetched_at"], errors="ignore"), height=None)
 
     st.divider()
     with st.expander("📥 Import manuel CSV (fallback si scraping bloqué)"):
@@ -1416,11 +2058,7 @@ elif page == "📚 Historique cours":
             st.line_chart(pivot)
 
             with st.expander("Voir les données brutes"):
-                st.dataframe(
-                    sub.sort_values(["ticker", "date"]),
-                    use_container_width=True,
-                    hide_index=True,
-                )
+                render_table(sub.sort_values(["ticker", "date"]), height=None)
 
 
 # ---------------------------------------------------------------------------
@@ -1458,7 +2096,7 @@ elif page == "⚙️ Paramètres":
         with col3:
             st.write("")
             st.write("")
-            if st.button("💾 Enregistrer dividende"):
+            if st.button("💾 Enregistrer dividende", key="div_save"):
                 db.set_dividend(fcp, div_ticker, float(div_amount))
                 st.success("Dividende enregistré.")
                 _clear_data_cache()
@@ -1466,10 +2104,29 @@ elif page == "⚙️ Paramètres":
 
         if divs:
             st.write("**Dividendes actifs :**")
-            st.dataframe(
-                pd.DataFrame(list(divs.items()), columns=["Symbole", "Montant"]),
-                hide_index=True, use_container_width=True,
-            )
+            render_table(pd.DataFrame(list(divs.items()), columns=["Symbole", "Montant"]), height=None)
+
+            col_del1, col_del2 = st.columns([1, 1])
+            with col_del1:
+                if st.button(
+                    f"🗑️ Supprimer dividende {div_ticker}",
+                    key="div_del_one",
+                ):
+                    db.set_dividend(fcp, div_ticker, 0.0)
+                    _clear_data_cache()
+                    st.success(f"Dividende de {div_ticker} supprimé.")
+                    st.rerun()
+            with col_del2:
+                if st.button(
+                    f"🗑️ Effacer tous les dividendes ({fcp})",
+                    key="div_del_all",
+                    type="secondary",
+                ):
+                    for ticker_d in list(divs.keys()):
+                        db.set_dividend(fcp, ticker_d, 0.0)
+                    _clear_data_cache()
+                    st.success(f"Tous les dividendes de {fcp} supprimés.")
+                    st.rerun()
 
     st.divider()
     st.subheader("Maintenance")
