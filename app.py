@@ -1297,8 +1297,14 @@ elif page == "📋 Suivi des cibles":
 
     # ── Vue globale — tous les FCPs ──────────────────────────────────────────
     if scope == "Tous les FCPs":
-        st.subheader("Suivi des cibles — Vue globale")
+        st.subheader("Suivi des cibles — Vue globale nettée")
+        st.caption(
+            "Agrégation par titre sur tous les FCPs éligibles. "
+            "L'écart net est la somme des écarts individuels — "
+            "un écart ≈ 0 signale une transaction interne possible entre FCPs."
+        )
 
+        # Compute tracking for each eligible FCP
         all_tracking_rows = []
         for fcp_name in eligible_fcps:
             targets_df_f = db.get_targets(fcp_name)
@@ -1309,68 +1315,187 @@ elif page == "📋 Suivi des cibles":
                 tx_all, prices, targets_df_f, fcp_name, as_of_ts, divs_f
             )
             if not t.empty:
-                t.insert(0, "FCP", fcp_name)
+                t["FCP"] = fcp_name
                 all_tracking_rows.append(t)
 
         if not all_tracking_rows:
             st.info("Aucune cible définie. Utilisez le panneau d'import ci-dessus.")
         else:
-            global_tracking = pd.concat(all_tracking_rows, ignore_index=True)
+            gt = pd.concat(all_tracking_rows, ignore_index=True)
 
-            # Global KPIs
-            n_a = int((global_tracking["sens"] == "ACHAT").sum())
-            n_v = int((global_tracking["sens"] == "VENTE").sum())
-            n_ok = int((global_tracking["sens"] == "OK").sum())
-            tot_a = global_tracking.loc[global_tracking["sens"]=="ACHAT","ecart_fcfa"].sum()
-            tot_v = global_tracking.loc[global_tracking["sens"]=="VENTE","ecart_fcfa"].sum()
+            # ── Netting par ticker ──────────────────────────────────────────
+            agg = (
+                gt.groupby("ticker")
+                .agg(
+                    qty_totale=("quantite_actuelle", "sum"),
+                    valo_totale=("valo_actuelle", "sum"),
+                    ecart_fcfa_net=("ecart_fcfa", "sum"),
+                    qty_ecart_net=("quantite_ecart", "sum"),
+                    cible_pct=("cible_pct", "first"),
+                    cours=("cours", "first"),
+                    n_fcps=("FCP", "nunique"),
+                )
+                .reset_index()
+            )
 
-            c1,c2,c3,c4,c5 = st.columns(5)
-            c1.metric("Lignes ACHAT", n_a)
-            c2.metric("Montant à acheter", fmt_xof(tot_a))
-            c3.metric("Lignes VENTE", n_v)
-            c4.metric("Montant à vendre", fmt_xof(abs(tot_v)))
+            # Global totals for weights
+            total_valo_global = float(agg["valo_totale"].sum())
+            agg["poids_actuel_global"] = agg["valo_totale"] / total_valo_global \
+                if total_valo_global else 0.0
+
+            # Derive cible_fcfa at global level from cible_pct × total valo
+            agg["cible_fcfa_global"] = agg.apply(
+                lambda r: r["cible_pct"] * total_valo_global
+                if pd.notna(r["cible_pct"]) else None,
+                axis=1,
+            )
+            agg["ecart_pct_net"] = agg.apply(
+                lambda r: r["cible_pct"] - r["poids_actuel_global"]
+                if pd.notna(r["cible_pct"]) else None,
+                axis=1,
+            )
+
+            # Determine net sens — threshold = half a share value
+            def _net_sens(row) -> str:
+                ef = row["ecart_fcfa_net"]
+                if pd.isna(ef):
+                    return "—"
+                cours_v = row["cours"] or 1
+                if abs(ef) < cours_v * 0.5:
+                    return "OK"
+                return "ACHAT" if ef > 0 else "VENTE"
+
+            agg["sens_net"] = agg.apply(_net_sens, axis=1)
+
+            # Detect inter-FCP opportunities: ticker has both ACHAT and VENTE
+            # in different FCPs → internal cross could offset
+            ticker_sens = gt.groupby("ticker")["sens"].apply(set)
+            agg["inter_fcp"] = agg["ticker"].map(
+                lambda t: "🔁" if {"ACHAT","VENTE"} <= ticker_sens.get(t, set())
+                else ""
+            )
+
+            # Sort: VENTE first, then ACHAT, then OK
+            _order = {"VENTE": 0, "ACHAT": 1, "OK": 2, "—": 3}
+            agg = agg.sort_values(
+                ["sens_net", "ecart_fcfa_net"],
+                key=lambda col: col.map(_order) if col.name == "sens_net"
+                                else col.abs(),
+                ascending=[True, False],
+            ).reset_index(drop=True)
+
+            # ── KPIs ──────────────────────────────────────────────────────
+            n_a  = int((agg["sens_net"] == "ACHAT").sum())
+            n_v  = int((agg["sens_net"] == "VENTE").sum())
+            n_ok = int((agg["sens_net"] == "OK").sum())
+            n_if = int((agg["inter_fcp"] == "🔁").sum())
+            tot_a = float(agg.loc[agg["sens_net"]=="ACHAT","ecart_fcfa_net"].sum())
+            tot_v = float(agg.loc[agg["sens_net"]=="VENTE","ecart_fcfa_net"].sum())
+
+            c1,c2,c3,c4,c5,c6 = st.columns(6)
+            c1.metric("Lignes ACHAT net", n_a)
+            c2.metric("Montant net à acheter", fmt_xof(tot_a))
+            c3.metric("Lignes VENTE nette", n_v)
+            c4.metric("Montant net à vendre", fmt_xof(abs(tot_v)))
             c5.metric("Lignes OK ✓", n_ok)
+            c6.metric("🔁 Transactions inter-FCP", n_if)
 
             st.divider()
 
+            # ── Tableau agrégé ─────────────────────────────────────────────
             display_g = pd.DataFrame({
-                "": global_tracking["sens"].map(
-                    lambda s: {"ACHAT":"🟢","VENTE":"🔴","OK":"✅","—":"⚪"}.get(s,"")
+                "": agg["sens_net"].map(
+                    {"ACHAT":"🟢","VENTE":"🔴","OK":"✅","—":"⚪"}
                 ),
-                "FCP":          global_tracking["FCP"],
-                "Ticker":       global_tracking["ticker"],
-                "Qté actuelle": global_tracking["quantite_actuelle"].map(
+                "🔁": agg["inter_fcp"],
+                "Ticker":       agg["ticker"],
+                "Qté totale":   agg["qty_totale"].map(
                     lambda v: f"{v:,.0f}".replace(",", " ") if v else "—"
                 ),
-                "Cours":        global_tracking["cours"].map(
+                "Cours":        agg["cours"].map(
                     lambda v: fmt_xof(v) if pd.notna(v) and v else "—"
                 ),
-                "Valo actuelle":global_tracking["valo_actuelle"].map(fmt_xof),
-                "Poids actuel": global_tracking["poids_actuel"].map(fmt_pct),
-                "Cible %":      global_tracking["cible_pct"].map(
-                    lambda v: fmt_pct(v) if pd.notna(v) and v is not None else "—"
+                "Valo totale":  agg["valo_totale"].map(fmt_xof),
+                "Poids actuel": agg["poids_actuel_global"].map(fmt_pct),
+                "Cible %":      agg["cible_pct"].map(
+                    lambda v: fmt_pct(v) if pd.notna(v) else "—"
                 ),
-                "Écart FCFA":   global_tracking["ecart_fcfa"].map(
-                    lambda v: fmt_xof(v, signed=True) if pd.notna(v) and v is not None else "—"
+                "Cible FCFA":   agg["cible_fcfa_global"].map(
+                    lambda v: fmt_xof(v) if pd.notna(v) else "—"
                 ),
-                "Écart %":      global_tracking["ecart_pct"].map(
-                    lambda v: fmt_pct(v, signed=True) if pd.notna(v) and v is not None else "—"
+                "Écart net FCFA": agg["ecart_fcfa_net"].map(
+                    lambda v: fmt_xof(v, signed=True) if pd.notna(v) else "—"
                 ),
-                "Qté écart":    global_tracking["quantite_ecart"].map(
-                    lambda v: f"{v:+,.0f}".replace(",", " ") if pd.notna(v) and v is not None else "—"
+                "Écart net %":  agg["ecart_pct_net"].map(
+                    lambda v: fmt_pct(v, signed=True) if pd.notna(v) else "—"
                 ),
-                "Sens":         global_tracking["sens"],
+                "Qté écart nette": agg["qty_ecart_net"].map(
+                    lambda v: f"{v:+,.0f}".replace(",", " ")
+                    if pd.notna(v) else "—"
+                ),
+                "Nb FCPs": agg["n_fcps"].astype(str),
+                "Sens net": agg["sens_net"],
             })
             render_table(display_g, height=600,
-                         color_cols=["Écart FCFA","Écart %","Qté écart"])
+                         color_cols=["Écart net FCFA","Écart net %",
+                                     "Qté écart nette"])
 
-            st.download_button(
-                "⬇️ Exporter la vue globale (CSV)",
-                data=global_tracking.to_csv(index=False).encode("utf-8"),
-                file_name=f"suivi_cibles_global_{as_of_ts.date()}.csv",
-                mime="text/csv",
-                key="dl_tracking_global",
-            )
+            # ── Transactions inter-FCP potentielles ────────────────────────
+            inter_tickers = agg[agg["inter_fcp"] == "🔁"]["ticker"].tolist()
+            if inter_tickers:
+                st.divider()
+                st.subheader("🔁 Transactions inter-FCP potentielles")
+                st.caption(
+                    "Ces titres ont des FCPs qui veulent acheter **et** d'autres "
+                    "qui veulent vendre. Une transaction interne entre FCPs "
+                    "pourrait solder tout ou partie de ces écarts sans passer "
+                    "par le marché."
+                )
+                inter_rows = []
+                for ticker in inter_tickers:
+                    rows_t = gt[gt["ticker"] == ticker].copy()
+                    rows_t = rows_t[rows_t["sens"].isin(["ACHAT","VENTE"])]
+                    rows_t = rows_t.sort_values("sens")
+                    cours_t = float(rows_t["cours"].iloc[0]) if not rows_t.empty else 0
+
+                    buy_fcps  = rows_t[rows_t["sens"]=="ACHAT"]
+                    sell_fcps = rows_t[rows_t["sens"]=="VENTE"]
+                    qty_buy   = float(buy_fcps["quantite_ecart"].sum())
+                    qty_sell  = abs(float(sell_fcps["quantite_ecart"].sum()))
+                    qty_match = min(qty_buy, qty_sell)
+                    valo_match = qty_match * cours_t
+
+                    inter_rows.append({
+                        "Ticker": ticker,
+                        "FCPs acheteurs": ", ".join(buy_fcps["FCP"].tolist()),
+                        "FCPs vendeurs":  ", ".join(sell_fcps["FCP"].tolist()),
+                        "Qté nettable":   f"{qty_match:,.0f}".replace(",", " "),
+                        "Montant nettable": fmt_xof(valo_match),
+                        "Cours":          fmt_xof(cours_t),
+                    })
+
+                inter_df = pd.DataFrame(inter_rows)
+                render_table(inter_df, height=None)
+
+            # ── Exports ────────────────────────────────────────────────────
+            col_e1, col_e2 = st.columns(2)
+            with col_e1:
+                st.download_button(
+                    "⬇️ Exporter la vue nettée (CSV)",
+                    data=agg.to_csv(index=False).encode("utf-8"),
+                    file_name=f"suivi_cibles_net_{as_of_ts.date()}.csv",
+                    mime="text/csv",
+                    key="dl_tracking_global",
+                )
+            with col_e2:
+                if inter_tickers:
+                    st.download_button(
+                        "⬇️ Exporter les transactions inter-FCP (CSV)",
+                        data=inter_df.to_csv(index=False).encode("utf-8"),
+                        file_name=f"inter_fcp_{as_of_ts.date()}.csv",
+                        mime="text/csv",
+                        key="dl_inter_fcp",
+                    )
 
     # ── Vue par FCP ──────────────────────────────────────────────────────────
     else:
