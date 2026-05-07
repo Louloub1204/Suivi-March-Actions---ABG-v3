@@ -1119,87 +1119,120 @@ elif page == "📋 Suivi des cibles":
     # ── Import de cibles ────────────────────────────────────────────────────
     with st.expander("📥 Importer les cibles (CSV ou Excel)", expanded=False):
 
-        # Template download buttons
-        st.caption("**Formats acceptés** — télécharge un modèle vide :")
-        col_t1, col_t2 = st.columns(2)
-        with col_t1:
-            template_std = "ticker,weight_pct,amount_fcfa\nBOAC,15.0,\nSNTS,12.5,\nETIT,,500000000\n"
-            st.download_button(
-                "📄 Modèle standard (ticker / weight_pct / amount_fcfa)",
-                data=template_std.encode(),
-                file_name="modele_cibles_standard.csv",
-                mime="text/csv",
-                key="dl_tpl_std",
-            )
-        with col_t2:
-            template_ntw = "name,ticker,weight\nSonatel,SNTS,15.0\nBank of Africa CI,BOAC,12.5\nETI Togo,ETIT,8.0\n"
-            st.download_button(
-                "📄 Modèle Name/Ticker/Weight",
-                data=template_ntw.encode(),
-                file_name="modele_cibles_ntw.csv",
-                mime="text/csv",
-                key="dl_tpl_ntw",
-            )
+        # FCPs exclus de l'import global
+        EXCLUDED_FCPS = {"FCP AL BARAKA", "FCP AL BARAKA 2"}
 
         st.caption(
-            "Formats supportés : "
-            "**ticker + weight_pct + amount_fcfa** (standard) "
-            "ou **name + ticker + weight** (poids en %). "
-            "Les colonnes non renseignées peuvent être laissées vides. "
-            "L'import écrase toutes les cibles existantes pour ce FCP."
+            "**Format attendu** : colonnes **Name** (A), **Ticker** (B), "
+            "**Weight** (C, en décimal — ex: 0.0762 = 7.62%). "
+            "Les pondérations s'appliquent à **tous les FCPs** "
+            "sauf **FCP AL BARAKA** et **FCP AL BARAKA 2**."
+        )
+
+        template_ntw = (
+            "Name,Ticker,Weight\n"
+            "NESTLE CI,NTLC,0.0762\n"
+            "SONATEL SN,SNTS,0.0857\n"
+            "ETI TG,ETIT,0.0810\n"
+        )
+        st.download_button(
+            "📄 Télécharger le modèle",
+            data=template_ntw.encode(),
+            file_name="modele_ponderations_cibles.csv",
+            mime="text/csv",
+            key="dl_tpl_ntw",
         )
 
         up = st.file_uploader(
-            "Fichier de cibles (.csv ou .xlsx)",
+            "Fichier de pondérations (.xlsx ou .csv)",
             type=["csv", "xlsx"],
             key="targets_upload",
         )
+
         if up is not None:
             try:
                 if up.name.endswith(".xlsx"):
-                    df_up = pd.read_excel(up)
+                    raw = pd.read_excel(up, header=None)
                 else:
-                    df_up = pd.read_csv(up)
+                    raw = pd.read_csv(up, header=None)
 
-                # Normalize column names
-                df_up.columns = [c.strip().lower() for c in df_up.columns]
-
-                # Detect Name/Ticker/Weight format
-                if "ticker" not in df_up.columns and "name" in df_up.columns:
-                    st.error("Colonne 'ticker' manquante. Vérifiez que votre fichier "
-                             "contient bien une colonne 'ticker'.")
-                elif "ticker" not in df_up.columns:
-                    st.error("Colonne 'ticker' manquante dans le fichier.")
+                # Detect if first row is a header
+                first_row = [str(v).strip().lower() for v in raw.iloc[0]]
+                if any(w in first_row for w in ["name","ticker","weight","symbole","poids"]):
+                    raw.columns = [str(v).strip().lower() for v in raw.iloc[0]]
+                    raw = raw.iloc[1:].reset_index(drop=True)
                 else:
-                    # Handle Name/Ticker/Weight format
-                    if "weight" in df_up.columns and "weight_pct" not in df_up.columns:
-                        df_up = df_up.rename(columns={"weight": "weight_pct"})
-                    if "weight_pct" not in df_up.columns:
-                        df_up["weight_pct"] = None
-                    if "amount_fcfa" not in df_up.columns:
-                        df_up["amount_fcfa"] = None
+                    raw.columns = [f"col{i}" for i in range(raw.shape[1])]
+                    raw.columns = ["name","ticker","weight"][:raw.shape[1]]
 
-                    df_up["ticker"] = df_up["ticker"].astype(str).str.strip().str.upper()
+                # Normalize to 3 columns
+                raw.columns = list(raw.columns)[:3]
+                raw.columns = ["name","ticker","weight"]
+                raw = raw.dropna(subset=["ticker"])
+                raw["ticker"] = raw["ticker"].astype(str).str.strip().str.upper()
+                raw["weight_pct"] = pd.to_numeric(raw["weight"], errors="coerce")
+                # Auto-convert if weights look like percentages (> 1)
+                if raw["weight_pct"].dropna().max() > 1.5:
+                    raw["weight_pct"] = raw["weight_pct"] / 100
+                raw["amount_fcfa"] = None
+                raw = raw[raw["weight_pct"].notna() & (raw["weight_pct"] > 0)]
 
-                    # Preview
-                    preview_cols = [c for c in ["name","ticker","weight_pct","amount_fcfa"]
-                                    if c in df_up.columns]
-                    st.write(f"**{len(df_up)}** lignes détectées :")
-                    preview = df_up[preview_cols].head(10).rename(columns={
-                        "name": "Nom", "ticker": "Ticker",
-                        "weight_pct": "Poids cible (%)",
-                        "amount_fcfa": "Montant cible (FCFA)",
-                    })
-                    render_table(preview, height=None)
+                total_w = float(raw["weight_pct"].sum())
+                target_fcps = [f for f in _cached_fcps() if f not in EXCLUDED_FCPS]
 
-                    if st.button("Confirmer l'import", key="targets_import_confirm"):
-                        n = db.replace_targets_for_fcp(fcp, df_up)
-                        _clear_data_cache()
-                        st.success(f"✅ {n} cibles chargées pour {fcp}.")
-                        st.rerun()
+                # Preview
+                st.write(
+                    f"**{len(raw)}** titres détectés  ·  "
+                    f"Poids total : **{total_w*100:.1f}%**  ·  "
+                    f"Application sur **{len(target_fcps)} FCPs**"
+                )
+                if abs(total_w - 1.0) > 0.01:
+                    st.warning(
+                        f"⚠️ Le poids total est {total_w*100:.2f}% "
+                        f"(attendu 100%). Vérifie les données avant de confirmer."
+                    )
+
+                preview_df = raw[["name","ticker","weight_pct"]].copy()
+                preview_df["weight_pct"] = preview_df["weight_pct"].map(
+                    lambda v: f"{v*100:.2f}%"
+                )
+                preview_df.columns = ["Nom", "Ticker", "Poids cible"]
+                render_table(preview_df, height=350)
+
+                st.caption(
+                    "FCPs exclus : " + ", ".join(sorted(EXCLUDED_FCPS))
+                    + " — ces fonds conservent leurs cibles actuelles."
+                )
+
+                if st.button(
+                    "✅ Confirmer l'import sur tous les FCPs",
+                    key="targets_import_confirm",
+                    type="primary",
+                ):
+                    total_lines = 0
+                    errors = []
+                    for fcp_name in target_fcps:
+                        try:
+                            n = db.replace_targets_for_fcp(fcp_name, raw)
+                            total_lines += n
+                        except Exception as e_fcp:
+                            errors.append(f"{fcp_name}: {e_fcp}")
+                    _clear_data_cache()
+                    if errors:
+                        st.warning(
+                            f"Import partiel : {total_lines} lignes chargées. "
+                            f"Erreurs : {'; '.join(errors)}"
+                        )
+                    else:
+                        st.success(
+                            f"✅ {len(raw)} pondérations appliquées sur "
+                            f"{len(target_fcps)} FCPs "
+                            f"({total_lines} entrées au total)."
+                        )
+                    st.rerun()
+
             except Exception as e:
                 st.error(f"Lecture impossible : {e}")
-
     # ── Saisie manuelle ─────────────────────────────────────────────────────
     with st.expander("✏️ Saisie / modification manuelle des cibles", expanded=False):
         st.caption(
@@ -1250,116 +1283,205 @@ elif page == "📋 Suivi des cibles":
 
     st.divider()
 
-    # ── Tableau de suivi ─────────────────────────────────────────────────────
-    targets_df = db.get_targets(fcp)
+    # ── Sélecteur de périmètre ───────────────────────────────────────────────
+    EXCLUDED_FROM_TARGETS = {"FCP AL BARAKA", "FCP AL BARAKA 2"}
+    eligible_fcps = [f for f in fcps if f not in EXCLUDED_FROM_TARGETS]
 
-    if targets_df.empty:
-        st.info(
-            "Aucune cible définie pour ce FCP. "
-            "Utilisez les panneaux ci-dessus pour importer ou saisir des cibles."
-        )
-    else:
-        tracking = compute_tracking(
-            tx_all, prices, targets_df, fcp, as_of_ts, divs
-        )
+    scope_options = ["Tous les FCPs"] + eligible_fcps
+    scope = st.selectbox(
+        "Périmètre d'analyse",
+        options=scope_options,
+        index=0,
+        key="tracking_scope",
+    )
 
-        if tracking.empty:
-            st.info("Aucune position ni cible à afficher.")
+    # ── Vue globale — tous les FCPs ──────────────────────────────────────────
+    if scope == "Tous les FCPs":
+        st.subheader("Suivi des cibles — Vue globale")
+
+        all_tracking_rows = []
+        for fcp_name in eligible_fcps:
+            targets_df_f = db.get_targets(fcp_name)
+            if targets_df_f.empty:
+                continue
+            divs_f = _cached_dividends_all(tuple(fcps)).get(fcp_name, {})
+            t = compute_tracking(
+                tx_all, prices, targets_df_f, fcp_name, as_of_ts, divs_f
+            )
+            if not t.empty:
+                t.insert(0, "FCP", fcp_name)
+                all_tracking_rows.append(t)
+
+        if not all_tracking_rows:
+            st.info("Aucune cible définie. Utilisez le panneau d'import ci-dessus.")
         else:
-            # KPIs
-            n_achat = int((tracking["sens"] == "ACHAT").sum())
-            n_vente = int((tracking["sens"] == "VENTE").sum())
-            n_ok    = int((tracking["sens"] == "OK").sum())
-            total_a_acheter = tracking.loc[
-                tracking["sens"] == "ACHAT", "ecart_fcfa"
-            ].sum()
-            total_a_vendre = tracking.loc[
-                tracking["sens"] == "VENTE", "ecart_fcfa"
-            ].sum()
+            global_tracking = pd.concat(all_tracking_rows, ignore_index=True)
 
-            c1, c2, c3, c4, c5 = st.columns(5)
-            c1.metric("Lignes ACHAT", n_achat)
-            c2.metric("Montant à acheter", fmt_xof(total_a_acheter))
-            c3.metric("Lignes VENTE", n_vente)
-            c4.metric("Montant à vendre", fmt_xof(abs(total_a_vendre)))
+            # Global KPIs
+            n_a = int((global_tracking["sens"] == "ACHAT").sum())
+            n_v = int((global_tracking["sens"] == "VENTE").sum())
+            n_ok = int((global_tracking["sens"] == "OK").sum())
+            tot_a = global_tracking.loc[global_tracking["sens"]=="ACHAT","ecart_fcfa"].sum()
+            tot_v = global_tracking.loc[global_tracking["sens"]=="VENTE","ecart_fcfa"].sum()
+
+            c1,c2,c3,c4,c5 = st.columns(5)
+            c1.metric("Lignes ACHAT", n_a)
+            c2.metric("Montant à acheter", fmt_xof(tot_a))
+            c3.metric("Lignes VENTE", n_v)
+            c4.metric("Montant à vendre", fmt_xof(abs(tot_v)))
             c5.metric("Lignes OK ✓", n_ok)
 
             st.divider()
 
-            # Color helper
-            def _row_color(sens: str) -> str:
-                return {"ACHAT": "🟢", "VENTE": "🔴", "OK": "✅", "—": "⚪"}.get(sens, "")
+            display_g = pd.DataFrame({
+                "": global_tracking["sens"].map(
+                    lambda s: {"ACHAT":"🟢","VENTE":"🔴","OK":"✅","—":"⚪"}.get(s,"")
+                ),
+                "FCP":          global_tracking["FCP"],
+                "Ticker":       global_tracking["ticker"],
+                "Qté actuelle": global_tracking["quantite_actuelle"].map(
+                    lambda v: f"{v:,.0f}".replace(",", " ") if v else "—"
+                ),
+                "Cours":        global_tracking["cours"].map(
+                    lambda v: fmt_xof(v) if pd.notna(v) and v else "—"
+                ),
+                "Valo actuelle":global_tracking["valo_actuelle"].map(fmt_xof),
+                "Poids actuel": global_tracking["poids_actuel"].map(fmt_pct),
+                "Cible %":      global_tracking["cible_pct"].map(
+                    lambda v: fmt_pct(v) if pd.notna(v) and v is not None else "—"
+                ),
+                "Écart FCFA":   global_tracking["ecart_fcfa"].map(
+                    lambda v: fmt_xof(v, signed=True) if pd.notna(v) and v is not None else "—"
+                ),
+                "Écart %":      global_tracking["ecart_pct"].map(
+                    lambda v: fmt_pct(v, signed=True) if pd.notna(v) and v is not None else "—"
+                ),
+                "Qté écart":    global_tracking["quantite_ecart"].map(
+                    lambda v: f"{v:+,.0f}".replace(",", " ") if pd.notna(v) and v is not None else "—"
+                ),
+                "Sens":         global_tracking["sens"],
+            })
+            render_table(display_g, height=600,
+                         color_cols=["Écart FCFA","Écart %","Qté écart"])
 
-            # Format for display
-            display = tracking.copy()
-            display[""] = display["sens"].map(
-                lambda s: {"ACHAT": "🟢", "VENTE": "🔴", "OK": "✅", "—": "⚪"}.get(s, "")
-            )
-            display["Cours"] = display["cours"].map(
-                lambda v: fmt_xof(v) if pd.notna(v) and v else "—"
-            )
-            display["Qté actuelle"] = display["quantite_actuelle"].map(
-                lambda v: f"{v:,.0f}".replace(",", " ") if v else "—"
-            )
-            display["Valo actuelle"] = display["valo_actuelle"].map(fmt_xof)
-            display["Poids actuel"] = display["poids_actuel"].map(fmt_pct)
-            display["Cible %"] = display["cible_pct"].map(
-                lambda v: fmt_pct(v) if pd.notna(v) and v is not None else "—"
-            )
-            display["Cible FCFA"] = display["cible_fcfa"].map(
-                lambda v: fmt_xof(v) if pd.notna(v) and v is not None else "—"
-            )
-            display["Écart FCFA"] = display["ecart_fcfa"].map(
-                lambda v: fmt_xof(v, signed=True) if pd.notna(v) and v is not None else "—"
-            )
-            display["Écart %"] = display["ecart_pct"].map(
-                lambda v: fmt_pct(v, signed=True) if pd.notna(v) and v is not None else "—"
-            )
-            display["Qté écart"] = display["quantite_ecart"].map(
-                lambda v: f"{v:+,.0f}".replace(",", " ") if pd.notna(v) and v is not None else "—"
-            )
-            display["Sens"] = display["sens"]
-
-            cols_show = [
-                "", "ticker", "Qté actuelle", "Cours", "Valo actuelle",
-                "Poids actuel", "Cible %", "Cible FCFA",
-                "Écart FCFA", "Écart %", "Qté écart", "Sens",
-            ]
-            render_table(
-                display[cols_show].rename(columns={"ticker": "Ticker"}),
-                height=600,
-                color_cols=["Écart FCFA", "Écart %", "Qté écart"],
-            )
-
-            # Export
-            export_cols = [
-                "ticker", "quantite_actuelle", "cours", "valo_actuelle",
-                "poids_actuel", "cible_pct", "cible_fcfa",
-                "ecart_fcfa", "ecart_pct", "quantite_ecart", "sens",
-            ]
             st.download_button(
-                "⬇️ Exporter le suivi (CSV)",
-                data=tracking[export_cols].to_csv(index=False).encode("utf-8"),
-                file_name=f"suivi_cibles_{fcp.replace(' ', '_')}_{as_of_ts.date()}.csv",
+                "⬇️ Exporter la vue globale (CSV)",
+                data=global_tracking.to_csv(index=False).encode("utf-8"),
+                file_name=f"suivi_cibles_global_{as_of_ts.date()}.csv",
                 mime="text/csv",
-                key="dl_tracking",
+                key="dl_tracking_global",
             )
 
-            # Cibles enregistrées (raw) en expander
-            with st.expander("📋 Cibles enregistrées pour ce FCP"):
-                raw_disp = targets_df.copy()
-                raw_disp["weight_pct"] = raw_disp["weight_pct"].map(
-                    lambda v: f"{v:.2f}%" if pd.notna(v) else "—"
+    # ── Vue par FCP ──────────────────────────────────────────────────────────
+    else:
+        fcp_scope = scope
+        targets_df = db.get_targets(fcp_scope)
+        divs_scope = _cached_dividends_all(tuple(fcps)).get(fcp_scope, {})
+
+        if targets_df.empty:
+            st.info(
+                f"Aucune cible définie pour **{fcp_scope}**. "
+                "Utilisez le panneau d'import ci-dessus."
+            )
+        else:
+            tracking = compute_tracking(
+                tx_all, prices, targets_df, fcp_scope, as_of_ts, divs_scope
+            )
+
+            if tracking.empty:
+                st.info("Aucune position ni cible à afficher.")
+            else:
+                n_achat = int((tracking["sens"] == "ACHAT").sum())
+                n_vente = int((tracking["sens"] == "VENTE").sum())
+                n_ok    = int((tracking["sens"] == "OK").sum())
+                total_a_acheter = tracking.loc[
+                    tracking["sens"] == "ACHAT", "ecart_fcfa"
+                ].sum()
+                total_a_vendre = tracking.loc[
+                    tracking["sens"] == "VENTE", "ecart_fcfa"
+                ].sum()
+
+                c1, c2, c3, c4, c5 = st.columns(5)
+                c1.metric("Lignes ACHAT", n_achat)
+                c2.metric("Montant à acheter", fmt_xof(total_a_acheter))
+                c3.metric("Lignes VENTE", n_vente)
+                c4.metric("Montant à vendre", fmt_xof(abs(total_a_vendre)))
+                c5.metric("Lignes OK ✓", n_ok)
+
+                st.divider()
+
+                display = pd.DataFrame({
+                    "": tracking["sens"].map(
+                        lambda s: {"ACHAT":"🟢","VENTE":"🔴","OK":"✅","—":"⚪"}.get(s,"")
+                    ),
+                    "Ticker":       tracking["ticker"],
+                    "Qté actuelle": tracking["quantite_actuelle"].map(
+                        lambda v: f"{v:,.0f}".replace(",", " ") if v else "—"
+                    ),
+                    "Cours":        tracking["cours"].map(
+                        lambda v: fmt_xof(v) if pd.notna(v) and v else "—"
+                    ),
+                    "Valo actuelle":tracking["valo_actuelle"].map(fmt_xof),
+                    "Poids actuel": tracking["poids_actuel"].map(fmt_pct),
+                    "Cible %":      tracking["cible_pct"].map(
+                        lambda v: fmt_pct(v) if pd.notna(v) and v is not None else "—"
+                    ),
+                    "Cible FCFA":   tracking["cible_fcfa"].map(
+                        lambda v: fmt_xof(v) if pd.notna(v) and v is not None else "—"
+                    ),
+                    "Écart FCFA":   tracking["ecart_fcfa"].map(
+                        lambda v: fmt_xof(v, signed=True) if pd.notna(v) and v is not None else "—"
+                    ),
+                    "Écart %":      tracking["ecart_pct"].map(
+                        lambda v: fmt_pct(v, signed=True) if pd.notna(v) and v is not None else "—"
+                    ),
+                    "Qté écart":    tracking["quantite_ecart"].map(
+                        lambda v: f"{v:+,.0f}".replace(",", " ") if pd.notna(v) and v is not None else "—"
+                    ),
+                    "Sens":         tracking["sens"],
+                })
+                render_table(display, height=600,
+                             color_cols=["Écart FCFA","Écart %","Qté écart"])
+
+                export_cols = [
+                    "ticker","quantite_actuelle","cours","valo_actuelle",
+                    "poids_actuel","cible_pct","cible_fcfa",
+                    "ecart_fcfa","ecart_pct","quantite_ecart","sens",
+                ]
+                st.download_button(
+                    "⬇️ Exporter le suivi (CSV)",
+                    data=tracking[export_cols].to_csv(index=False).encode("utf-8"),
+                    file_name=(
+                        f"suivi_cibles_{fcp_scope.replace(' ','_')}"
+                        f"_{as_of_ts.date()}.csv"
+                    ),
+                    mime="text/csv",
+                    key="dl_tracking",
                 )
-                raw_disp["amount_fcfa"] = raw_disp["amount_fcfa"].map(
-                    lambda v: fmt_xof(v) if pd.notna(v) else "—"
-                )
-                render_table(raw_disp[["ticker", "weight_pct", "amount_fcfa", "updated_at"]], height=None)
-                if st.button("🗑️ Effacer toutes les cibles de ce FCP", key="clear_all_targets"):
-                    db.replace_targets_for_fcp(fcp, pd.DataFrame(columns=["ticker","weight_pct","amount_fcfa"]))
-                    _clear_data_cache()
-                    st.success("Toutes les cibles effacées.")
-                    st.rerun()
+
+                with st.expander(f"📋 Cibles enregistrées — {fcp_scope}"):
+                    raw_disp = targets_df.copy()
+                    raw_disp["weight_pct"] = raw_disp["weight_pct"].map(
+                        lambda v: f"{v*100:.2f}%" if pd.notna(v) else "—"
+                    )
+                    raw_disp["amount_fcfa"] = raw_disp["amount_fcfa"].map(
+                        lambda v: fmt_xof(v) if pd.notna(v) else "—"
+                    )
+                    render_table(
+                        raw_disp[["ticker","weight_pct","amount_fcfa","updated_at"]],
+                        height=None,
+                    )
+                    if st.button(
+                        f"🗑️ Effacer toutes les cibles de {fcp_scope}",
+                        key="clear_all_targets",
+                    ):
+                        db.replace_targets_for_fcp(
+                            fcp_scope,
+                            pd.DataFrame(columns=["ticker","weight_pct","amount_fcfa"]),
+                        )
+                        _clear_data_cache()
+                        st.success("Toutes les cibles effacées.")
+                        st.rerun()
 
 
 # ---------------------------------------------------------------------------
