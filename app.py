@@ -951,22 +951,34 @@ elif page == "🎯 Expositions":
                 total_row = m.sum(axis=0)
                 total_row.name = "TOTAL"
                 m = pd.concat([m, total_row.to_frame().T])
-                formatted = m.apply(lambda col: col.map(
-                    lambda v: f"{v:,.0f}".replace(",", " ") if v > 0 else "-"
+                formatted = m.reset_index().rename(
+                    columns={"secteur": "Secteur"}
+                ).apply(lambda col: col.map(
+                    lambda v: f"{v:,.0f}".replace(",", " ")
+                    if isinstance(v, (int, float)) and v > 0 else
+                    ("-" if isinstance(v, (int, float)) else str(v))
                 ))
                 export_sec_df = m
             elif sec_view_mode == "Poids dans le FCP":
                 fcp_totals = sector_fcp.sum(axis=0)
                 m = sector_fcp.div(fcp_totals, axis=1).fillna(0)
-                formatted = m.apply(lambda col: col.map(
-                    lambda v: f"{v*100:.1f}%" if v > 0 else "-"
+                formatted = m.reset_index().rename(
+                    columns={"secteur": "Secteur"}
+                ).apply(lambda col: col.map(
+                    lambda v: f"{v*100:.1f}%"
+                    if isinstance(v, (int, float)) and v > 0 else
+                    ("-" if isinstance(v, (int, float)) else str(v))
                 ))
                 export_sec_df = m
             else:  # Poids global
                 m = sector_fcp / total_global
                 m["TOTAL"] = m.sum(axis=1)
-                formatted = m.apply(lambda col: col.map(
-                    lambda v: f"{v*100:.2f}%" if v > 0 else "-"
+                formatted = m.reset_index().rename(
+                    columns={"secteur": "Secteur"}
+                ).apply(lambda col: col.map(
+                    lambda v: f"{v*100:.2f}%"
+                    if isinstance(v, (int, float)) and v > 0 else
+                    ("-" if isinstance(v, (int, float)) else str(v))
                 ))
                 export_sec_df = m
 
@@ -1039,8 +1051,12 @@ elif page == "🎯 Expositions":
                 total_row = matrix_display.sum(axis=0)
                 total_row.name = "TOTAL"
                 matrix_display = pd.concat([matrix_display, total_row.to_frame().T])
-                formatted = matrix_display.apply(lambda col: col.map(
-                    lambda v: f"{v:,.0f}".replace(",", " ") if v > 0 else "-"
+                formatted = matrix_display.reset_index().rename(
+                    columns={"ticker": "Ticker"}
+                ).apply(lambda col: col.map(
+                    lambda v: f"{v:,.0f}".replace(",", " ")
+                    if isinstance(v, (int, float)) and v > 0 else
+                    ("-" if isinstance(v, (int, float)) else str(v))
                 ))
                 render_table(formatted, height=600)
                 export_df = matrix_display
@@ -1048,8 +1064,12 @@ elif page == "🎯 Expositions":
             elif view_mode == "Poids dans le FCP":
                 fcp_totals = matrix_val.sum(axis=0)
                 matrix_pct = matrix_val.div(fcp_totals, axis=1).fillna(0)
-                formatted = matrix_pct.apply(lambda col: col.map(
-                    lambda v: f"{v*100:.1f}%" if v > 0 else "-"
+                formatted = matrix_pct.reset_index().rename(
+                    columns={"ticker": "Ticker"}
+                ).apply(lambda col: col.map(
+                    lambda v: f"{v*100:.1f}%"
+                    if isinstance(v, (int, float)) and v > 0 else
+                    ("-" if isinstance(v, (int, float)) else str(v))
                 ))
                 render_table(formatted, height=600)
                 export_df = matrix_pct
@@ -1057,8 +1077,12 @@ elif page == "🎯 Expositions":
             else:  # Poids global
                 matrix_pct = matrix_val / total_global
                 matrix_pct["TOTAL"] = matrix_pct.sum(axis=1)
-                formatted = matrix_pct.apply(lambda col: col.map(
-                    lambda v: f"{v*100:.2f}%" if v > 0 else "-"
+                formatted = matrix_pct.reset_index().rename(
+                    columns={"ticker": "Ticker"}
+                ).apply(lambda col: col.map(
+                    lambda v: f"{v*100:.2f}%"
+                    if isinstance(v, (int, float)) and v > 0 else
+                    ("-" if isinstance(v, (int, float)) else str(v))
                 ))
                 render_table(formatted, height=600)
                 export_df = matrix_pct
