@@ -524,7 +524,7 @@ def compute_tracking(
             cible_fcfa = None
         else:
             r = t_row.iloc[0]
-            cible_pct = float(r["weight_pct"]) / 100.0 if pd.notna(r.get("weight_pct")) else None
+            cible_pct = float(r["weight_pct"]) if pd.notna(r.get("weight_pct")) else None
             cible_fcfa = float(r["amount_fcfa"]) if pd.notna(r.get("amount_fcfa")) else None
 
         # Derive missing cible from the other dimension
