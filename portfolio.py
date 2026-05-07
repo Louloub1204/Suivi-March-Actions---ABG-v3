@@ -731,3 +731,97 @@ def aggregate_drivers_by_ticker(drivers: pd.DataFrame) -> pd.DataFrame:
 
     agg = agg.sort_values("pnl_total", ascending=False).reset_index(drop=True)
     return agg
+
+
+# ---------------------------------------------------------------------------
+# Period performance — variation between two dates
+# ---------------------------------------------------------------------------
+
+def compute_period_perf(
+    transactions: pd.DataFrame,
+    cours: pd.DataFrame,
+    fcps: list[str],
+    date_debut: pd.Timestamp,
+    date_fin: pd.Timestamp,
+    dividends_by_fcp: dict[str, dict[str, float]] | None = None,
+) -> pd.DataFrame:
+    """Compute FCP performance over a custom date range [date_debut, date_fin].
+
+    For each FCP:
+      valo_debut       : portfolio value at date_debut (positions × prices)
+      valo_fin         : portfolio value at date_fin
+      flux_nets        : net cash flows during the period
+                         = Σ cost_in (ACHATS) − Σ cost_out (VENTES)
+                         strictly in (date_debut, date_fin]
+      variation_brute  : valo_fin − valo_debut
+      variation_nette  : valo_fin − valo_debut − flux_nets  (pure performance)
+      variation_brute_pct : variation_brute / valo_debut
+      variation_nette_pct : variation_nette / valo_debut
+
+    Returns one row per FCP, sorted by variation_nette descending.
+    """
+    dividends_by_fcp = dividends_by_fcp or {}
+    d0 = pd.Timestamp(date_debut)
+    d1 = pd.Timestamp(date_fin)
+
+    rows: list[dict] = []
+
+    for fcp in fcps:
+        divs = dividends_by_fcp.get(fcp, {})
+
+        # Valuation at date_debut
+        pos0 = compute_positions(transactions, fcp, d0)
+        valo_debut = 0.0
+        if not pos0.empty:
+            for _, p in pos0.iterrows():
+                if float(p["quantite"]) <= 0:
+                    continue
+                price = get_price_on(cours, p["ticker"], d0) or 0.0
+                div   = divs.get(p["ticker"], 0.0)
+                valo_debut += float(p["quantite"]) * (price + div)
+
+        # Valuation at date_fin
+        pos1 = compute_positions(transactions, fcp, d1)
+        valo_fin = 0.0
+        if not pos1.empty:
+            for _, p in pos1.iterrows():
+                if float(p["quantite"]) <= 0:
+                    continue
+                price = get_price_on(cours, p["ticker"], d1) or 0.0
+                div   = divs.get(p["ticker"], 0.0)
+                valo_fin += float(p["quantite"]) * (price + div)
+
+        # Net cash flows strictly inside the period (d0, d1]
+        if not transactions.empty:
+            df = transactions.copy()
+            df["date"] = pd.to_datetime(df["date"])
+            mask = (
+                (df["fcp"] == fcp)
+                & (df["date"] > d0)
+                & (df["date"] <= d1)
+            )
+            period_tx = df.loc[mask]
+            flux_in  = float(period_tx.loc[period_tx["sens"]=="ACHAT","cost_in"].sum())
+            flux_out = float(period_tx.loc[period_tx["sens"]=="VENTE","cost_out"].sum())
+            flux_nets = flux_in - flux_out
+        else:
+            flux_nets = 0.0
+
+        variation_brute = valo_fin - valo_debut
+        variation_nette = valo_fin - valo_debut - flux_nets
+
+        rows.append({
+            "FCP":                 fcp,
+            "Valo début":          valo_debut,
+            "Valo fin":            valo_fin,
+            "Flux nets":           flux_nets,
+            "Variation brute":     variation_brute,
+            "Variation nette":     variation_nette,
+            "Variation brute %":   variation_brute / valo_debut if valo_debut else 0.0,
+            "Variation nette %":   variation_nette / valo_debut if valo_debut else 0.0,
+        })
+
+    df_out = pd.DataFrame(rows)
+    if not df_out.empty:
+        df_out = df_out.sort_values("Variation nette", ascending=False).reset_index(drop=True)
+    return df_out
