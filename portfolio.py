@@ -580,8 +580,14 @@ def compute_tracking(
 
     # Sort: VENTE first, then ACHAT, then OK, then no target
     order = {"VENTE": 0, "ACHAT": 1, "OK": 2, "—": 3}
-    df["_sort"] = df["sens"].map(order)
-    df["_ecart_abs"] = pd.to_numeric(df["ecart_fcfa"], errors="coerce").abs().fillna(0)
+    df["_sort"] = df["sens"].map(order).fillna(3)
+    # Use apply(abs) on individual values to avoid pandas 3.x None issue
+    def _safe_abs(v):
+        try:
+            return abs(float(v))
+        except (TypeError, ValueError):
+            return 0.0
+    df["_ecart_abs"] = df["ecart_fcfa"].apply(_safe_abs)
     df = (df.sort_values(["_sort", "_ecart_abs"], ascending=[True, False])
             .drop(columns=["_sort", "_ecart_abs"])
             .reset_index(drop=True))
