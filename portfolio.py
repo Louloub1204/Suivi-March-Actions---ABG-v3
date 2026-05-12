@@ -581,11 +581,10 @@ def compute_tracking(
     # Sort: VENTE first, then ACHAT, then OK, then no target
     order = {"VENTE": 0, "ACHAT": 1, "OK": 2, "—": 3}
     df["_sort"] = df["sens"].map(order)
-    df = (df.sort_values(["_sort", "ecart_fcfa"],
-                         ascending=[True, True],
-                         key=lambda col: col.abs() if col.name == "ecart_fcfa" else col)
-          .drop(columns=["_sort"])
-          .reset_index(drop=True))
+    df["_ecart_abs"] = pd.to_numeric(df["ecart_fcfa"], errors="coerce").abs().fillna(0)
+    df = (df.sort_values(["_sort", "_ecart_abs"], ascending=[True, False])
+            .drop(columns=["_sort", "_ecart_abs"])
+            .reset_index(drop=True))
     return df
 
 
