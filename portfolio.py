@@ -520,8 +520,13 @@ def compute_tracking(
         # Get target for this ticker
         t_row = targets[targets["ticker"].str.strip() == ticker]
         if t_row.empty:
-            cible_pct = None
-            cible_fcfa = None
+            if qte_act > 0:
+                # Held but not in targets → must be sold entirely for reallocation
+                cible_pct  = 0.0
+                cible_fcfa = 0.0
+            else:
+                cible_pct  = None
+                cible_fcfa = None
         else:
             r = t_row.iloc[0]
             cible_pct = float(r["weight_pct"]) if pd.notna(r.get("weight_pct")) else None
