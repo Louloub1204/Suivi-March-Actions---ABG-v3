@@ -1877,80 +1877,186 @@ elif page == "💼 Transactions":
 # ---------------------------------------------------------------------------
 elif page == "🌐 Cours BRVM":
     st.header("Cours BRVM — Mise à jour automatique")
-    st.caption("Source : sikafinance.com/marches/aaz (fallback brvm.org)")
 
-    last_refresh = db.get_last_brvm_refresh()
-    if last_refresh:
-        st.caption(f"📅 Dernier rafraîchissement : **{last_refresh}**")
+    # ── Helpers de timing ────────────────────────────────────────────────────
+    import datetime as _dt
 
-    col1, col2 = st.columns([1, 3])
-    with col1:
-        do_fetch = st.button("🔄 Rafraîchir maintenant", type="primary")
-    with col2:
-        st.caption(
-            "Chaque rafraîchissement écrase le cours du jour avec la dernière "
-            "valeur reçue. Les jours précédents restent intacts."
-        )
+    # Fuseau Dakar = UTC+0 (pas de décalage, même heure que UTC)
+    MARKET_START = _dt.time(9, 50)   # premier refresh à 9h50
+    MARKET_END   = _dt.time(17, 30)  # clôture BRVM
+    INTERVAL_MIN = 15                 # minutes entre refreshs
 
-    if do_fetch:
-        try:
-            from scraper import fetch_with_session_date
-            with st.spinner("Récupération des cours…"):
-                quotes_df, sess = fetch_with_session_date(timeout=25)
-            for _, row in quotes_df.iterrows():
-                db.upsert_quote_today(row.to_dict())
-            close_rows = quotes_df[["ticker", "close"]].dropna().copy()
-            close_rows["date"] = sess.isoformat()
-            close_rows = close_rows.rename(columns={"close": "price"})[["date", "ticker", "price"]]
-            n_prices = db.upsert_prices(close_rows, source="brvm")
-            _clear_data_cache()
-            src = quotes_df.get("source_url", pd.Series(["?"])).iloc[0] if len(quotes_df) else "?"
-            st.success(
-                f"✅ {len(quotes_df)} cours récupérés depuis **{src}** "
-                f"(séance du {sess.strftime('%d/%m/%Y')}). "
-                f"{n_prices} cours archivés / mis à jour."
-            )
-        except Exception as e:
-            st.error(f"Échec du rafraîchissement : {e}")
-            st.info("Si le scraper échoue, utilisez l'import CSV ci-dessous.")
+    def _next_slot_seconds() -> int | None:
+        """Calcule les secondes jusqu'au prochain slot de 15 min aligné sur 9h50.
 
-    st.divider()
+        Retourne None si on est en dehors des heures de marché.
+        Les slots sont : 9h50, 10h05, 10h20, ..., 17h20, 17h35 (dernier avant 17h30).
+        """
+        now = _dt.datetime.utcnow()  # Dakar = UTC+0
+        t   = now.time()
 
-    quotes = db.get_quotes_today()
-    if quotes.empty:
-        st.info("Pas encore de cours en mémoire — cliquez sur Rafraîchir.")
-    else:
-        st.subheader(f"Snapshot ({len(quotes)} titres)")
-        if "fetched_at" in quotes.columns and not quotes["fetched_at"].isna().all():
-            st.caption(f"Dernier rafraîchissement : {quotes['fetched_at'].max()}")
-        display = quotes.copy()
-        for c in ["volume", "prev_close", "open", "close"]:
-            if c in display.columns:
-                display[c] = display[c].map(
-                    lambda v: f"{v:,.0f}".replace(",", " ") if pd.notna(v) else "-"
+        if t < MARKET_START:
+            # Pas encore ouvert → prochain slot = 9h50 aujourd'hui
+            target = _dt.datetime.combine(now.date(), MARKET_START)
+            return max(1, int((target - now).total_seconds()))
+
+        if t >= MARKET_END:
+            # Marché fermé → pas de refresh automatique
+            return None
+
+        # Dans les heures de marché → calculer le prochain slot
+        # Nombre de minutes depuis l'ouverture (9h50)
+        open_dt = _dt.datetime.combine(now.date(), MARKET_START)
+        elapsed_min = (now - open_dt).total_seconds() / 60
+        slots_passed = int(elapsed_min // INTERVAL_MIN)
+        next_slot_dt = open_dt + _dt.timedelta(minutes=(slots_passed + 1) * INTERVAL_MIN)
+
+        # Si le prochain slot dépasse la fermeture, stop
+        if next_slot_dt.time() > MARKET_END:
+            return None
+
+        secs = max(1, int((next_slot_dt - now).total_seconds()))
+        return secs
+
+    def _is_market_open() -> bool:
+        t = _dt.datetime.utcnow().time()
+        return MARKET_START <= t < MARKET_END
+
+    # ── Fonction de refresh BRVM ──────────────────────────────────────────────
+    def _do_brvm_refresh() -> tuple[int, str, object] | None:
+        """Scrape et enregistre les cours. Retourne (n_cours, source, session_date)."""
+        from scraper import fetch_with_session_date
+        quotes_df, sess = fetch_with_session_date(timeout=25)
+        for _, row in quotes_df.iterrows():
+            db.upsert_quote_today(row.to_dict())
+        close_rows = quotes_df[["ticker", "close"]].dropna().copy()
+        close_rows["date"] = sess.isoformat()
+        close_rows = close_rows.rename(columns={"close": "price"})[["date", "ticker", "price"]]
+        n = db.upsert_prices(close_rows, source="brvm")
+        _clear_data_cache()
+        src = quotes_df.get("source_url", pd.Series(["?"])).iloc[0] if len(quotes_df) else "?"
+        return len(quotes_df), str(src), sess
+
+    # ── Fragment auto-rafraîchissant ──────────────────────────────────────────
+    next_secs = _next_slot_seconds()
+    market_open = _is_market_open()
+
+    # run_every = secondes jusqu'au prochain slot si marché ouvert, sinon None
+    @st.fragment(run_every=next_secs)
+    def _brvm_fragment():
+        now_utc = _dt.datetime.utcnow()
+        t = now_utc.time()
+        is_open = MARKET_START <= t < MARKET_END
+
+        # Statut du marché
+        if is_open:
+            secs = _next_slot_seconds()
+            if secs is not None:
+                mins, sec = divmod(secs, 60)
+                st.info(
+                    f"🟢 Marché ouvert — prochain rafraîchissement automatique dans "
+                    f"**{mins}m {sec:02d}s** "
+                    f"(slots : 9h50, 10h05, 10h20… à intervalles de 15 min)"
                 )
-        if "variation_pct" in display.columns:
-            display["variation_pct"] = display["variation_pct"].map(
-                lambda v: f"{v:+.2f}%" if pd.notna(v) else "-"
+            else:
+                st.info("🟢 Marché ouvert — dernier slot de la journée atteint.")
+        else:
+            if t < MARKET_START:
+                st.warning(
+                    f"⏳ Marché pas encore ouvert — premier refresh automatique à **9h50**."
+                )
+            else:
+                st.warning(
+                    f"🔴 Marché fermé (après 17h30) — pas de refresh automatique jusqu'à demain 9h50."
+                )
+
+        last_refresh = db.get_last_brvm_refresh()
+        if last_refresh:
+            st.caption(f"📅 Dernier rafraîchissement enregistré : **{last_refresh}**")
+
+        col1, col2 = st.columns([1, 3])
+        with col1:
+            do_fetch = st.button("🔄 Rafraîchir maintenant", type="primary",
+                                 key="brvm_manual_refresh")
+        with col2:
+            st.caption(
+                "Le bouton force un rafraîchissement immédiat. "
+                "En heures de marché, le refresh automatique toutes les 15 min "
+                "est actif même sans interaction."
             )
-        render_table(display.drop(columns=["fetched_at"], errors="ignore"), height=None)
+
+        # Refresh automatique en heures de marché (déclenché par run_every)
+        # ou manuel
+        should_refresh = do_fetch
+        if is_open and not do_fetch:
+            # Fragment rerun automatique → refresh les cours
+            should_refresh = True
+
+        if should_refresh and not do_fetch:
+            # Auto-refresh silencieux (pas de spinner visible)
+            try:
+                n_q, src, sess = _do_brvm_refresh()
+                st.caption(
+                    f"🔄 Auto-refresh {now_utc.strftime('%H:%M:%S')} UTC — "
+                    f"{n_q} cours ({src}, séance {sess.strftime('%d/%m/%Y')})"
+                )
+            except Exception as e:
+                st.caption(f"⚠️ Auto-refresh échoué : {e}")
+
+        elif do_fetch:
+            try:
+                with st.spinner("Récupération des cours…"):
+                    n_q, src, sess = _do_brvm_refresh()
+                st.success(
+                    f"✅ {n_q} cours récupérés depuis **{src}** "
+                    f"(séance du {sess.strftime('%d/%m/%Y')})."
+                )
+            except Exception as e:
+                st.error(f"Échec du rafraîchissement : {e}")
+
+        st.divider()
+
+        quotes = db.get_quotes_today()
+        if quotes.empty:
+            st.info("Pas encore de cours en mémoire — cliquez sur Rafraîchir.")
+        else:
+            st.subheader(f"Snapshot ({len(quotes)} titres)")
+            if "fetched_at" in quotes.columns and not quotes["fetched_at"].isna().all():
+                st.caption(f"Capturé à : {quotes['fetched_at'].max()}")
+            display = quotes.copy()
+            for c in ["volume", "prev_close", "open", "close"]:
+                if c in display.columns:
+                    display[c] = display[c].map(
+                        lambda v: f"{v:,.0f}".replace(",", " ") if pd.notna(v) else "-"
+                    )
+            if "variation_pct" in display.columns:
+                display["variation_pct"] = display["variation_pct"].map(
+                    lambda v: f"{v:+.2f}%" if pd.notna(v) else "-"
+                )
+            render_table(
+                display.drop(columns=["fetched_at"], errors="ignore"),
+                height=None,
+            )
+
+    _brvm_fragment()
 
     st.divider()
     with st.expander("📥 Import manuel CSV (fallback si scraping bloqué)"):
         st.caption("Format attendu : ticker,name,volume,prev_close,open,close,variation_pct")
         f = st.file_uploader("Fichier CSV", type=["csv"], key="quotes_csv")
         if f is not None:
-            df = pd.read_csv(f)
-            session_d = st.date_input("Date de séance", value=date.today(), key="manual_sess")
+            df_csv = pd.read_csv(f)
+            session_d = st.date_input("Date de séance", value=date.today(),
+                                      key="manual_sess")
             if st.button("Importer ce CSV"):
-                for _, r in df.iterrows():
+                for _, r in df_csv.iterrows():
                     db.upsert_quote_today(r.to_dict())
-                close_rows = df[["ticker", "close"]].dropna().copy()
+                close_rows = df_csv[["ticker", "close"]].dropna().copy()
                 close_rows["date"] = session_d.isoformat()
                 close_rows = close_rows.rename(columns={"close": "price"})
                 close_rows = close_rows[["date", "ticker", "price"]]
                 n = db.upsert_prices(close_rows, source="manual_csv")
-                st.success(f"Importé : {len(df)} cours, {n} archivés.")
+                st.success(f"Importé : {len(df_csv)} cours, {n} archivés.")
                 _clear_data_cache()
                 st.rerun()
 
