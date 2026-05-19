@@ -127,6 +127,15 @@ SCHEMA_STATEMENTS = [
     """,
     "CREATE INDEX IF NOT EXISTS idx_prices_ticker_date ON prices(ticker, date)",
     """
+    """
+    CREATE TABLE IF NOT EXISTS dividends_dated (
+        id BIGSERIAL PRIMARY KEY,
+        ticker TEXT NOT NULL,
+        amount DOUBLE PRECISION NOT NULL,
+        payment_date DATE NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )
+    """,
     CREATE TABLE IF NOT EXISTS quotes_today (
         ticker TEXT PRIMARY KEY,
         name TEXT,
@@ -615,3 +624,47 @@ def replace_all_targets(df: pd.DataFrame) -> int:
         method="multi", chunksize=200,
     )
     return len(valid)
+# ---------------------------------------------------------------------------
+# Dividends with payment dates
+# ---------------------------------------------------------------------------
+
+def get_dividends_dated() -> list[dict]:
+    """Return all dividends with their payment dates."""
+    eng = get_engine()
+    df = pd.read_sql_query(
+        text("SELECT id, ticker, amount, payment_date "
+             "FROM dividends_dated ORDER BY payment_date DESC, ticker"),
+        eng,
+    )
+    return df.to_dict("records")
+
+
+def add_dividend_dated(
+    ticker: str,
+    amount: float,
+    payment_date: str,
+) -> int:
+    """Insert a new dividend entry. Returns the new id."""
+    with conn() as c:
+        result = c.execute(
+            text("""INSERT INTO dividends_dated(ticker, amount, payment_date)
+                    VALUES (:ticker, :amount, :pd)
+                    RETURNING id"""),
+            {"ticker": ticker.strip().upper(),
+             "amount": amount,
+             "pd": payment_date},
+        )
+        return int(result.scalar())
+
+
+def delete_dividend_dated(div_id: int) -> None:
+    with conn() as c:
+        c.execute(
+            text("DELETE FROM dividends_dated WHERE id = :id"),
+            {"id": div_id},
+        )
+
+
+def clear_all_dividends_dated() -> None:
+    with conn() as c:
+        c.execute(text("DELETE FROM dividends_dated"))
