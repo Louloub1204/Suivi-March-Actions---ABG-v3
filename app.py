@@ -22,11 +22,13 @@ from auto_sync import run_daily_auto_sync_if_needed, render_sync_status_sidebar
 from fcp_calendar import is_weekly_fcp, weekday_label, WEEKLY_FCPS
 from portfolio import (
     build_dashboard,
+    compute_attribution,
     compute_exposures,
     compute_recap,
     compute_tracking,
     concentration_metrics,
     previous_business_date,
+    resolve_dividends_for_date,
 )
 from sectors import sector_of, all_sectors, annotate as annotate_sectors
 
@@ -337,6 +339,12 @@ def _cached_dividends_all(fcps_tuple: tuple[str, ...]) -> dict[str, dict[str, fl
 
 
 @st.cache_data(ttl=300, show_spinner=False)
+def _cached_dividends_dated() -> list[dict]:
+    """Return all dividends with their payment dates as a list of dicts."""
+    return db.get_dividends_dated()
+
+
+@st.cache_data(ttl=300, show_spinner=False)
 def _cached_known_tickers() -> list[str]:
     return db.get_known_tickers()
 
@@ -347,6 +355,7 @@ def _clear_data_cache() -> None:
     _cached_prices.clear()
     _cached_fcps.clear()
     _cached_dividends_all.clear()
+    _cached_dividends_dated.clear()
     _cached_known_tickers.clear()
 
 
@@ -856,6 +865,153 @@ elif page == "📊 Récap variations":
                     mime="text/csv",
                     key="dl_period",
                 )
+
+        # ── Tableau d'attribution de performance ─────────────────────────
+        st.divider()
+        st.subheader("Tableau d'attribution de performance")
+        st.caption(
+            "Décomposition de la variation de valeur du portefeuille actions "
+            "entre la date de début et la date de fin choisies. "
+            "**Effet marché** = Ptf. fin − Ptf. début − Achats + Ventes − Dividendes"
+        )
+
+        if not (period_start >= period_end):
+            with st.spinner("Calcul du tableau d'attribution…"):
+                from portfolio import compute_attribution
+                divs_dated = _cached_dividends_dated()
+                attr = compute_attribution(
+                    tx_all, prices, all_fcps,
+                    pd.Timestamp(period_start),
+                    pd.Timestamp(period_end),
+                    divs_dated,
+                )
+
+            if attr.empty:
+                st.info("Aucune donnée disponible.")
+            else:
+                # Totals row
+                totals = attr[[c for c in attr.columns if c != "FCP"]].sum()
+                totals_row = pd.DataFrame([{
+                    "FCP": "TOTAL",
+                    **{c: totals[c] for c in totals.index}
+                }])
+                attr_with_total = pd.concat([attr, totals_row], ignore_index=True)
+
+                # Format for display
+                money_cols = [
+                    "Ptf. Actions début", "Achats", "Ventes",
+                    "Dividendes", "Effet marché", "Ptf. Actions fin"
+                ]
+                disp_attr = attr_with_total.copy()
+                for col in money_cols:
+                    disp_attr[col] = disp_attr[col].map(
+                        lambda v: fmt_xof(v, signed=(col == "Effet marché"))
+                    )
+
+                render_table(
+                    disp_attr, height=None,
+                    color_cols=["Effet marché"],
+                )
+
+                # Export buttons
+                col_xl, col_pdf_attr = st.columns(2)
+
+                with col_xl:
+                    # Excel export
+                    try:
+                        import io as _io
+                        import openpyxl
+                        from openpyxl.styles import (
+                            Font, PatternFill, Alignment, Border, Side
+                        )
+                        wb = openpyxl.Workbook()
+                        ws = wb.active
+                        ws.title = "Attribution"
+
+                        # Header
+                        headers = list(attr_with_total.columns)
+                        header_fill = PatternFill(
+                            "solid", fgColor="004977"
+                        )
+                        for col_i, h in enumerate(headers, 1):
+                            cell = ws.cell(row=1, column=col_i, value=h)
+                            cell.font = Font(
+                                bold=True, color="FFFFFF", size=10
+                            )
+                            cell.fill = header_fill
+                            cell.alignment = Alignment(horizontal="center")
+
+                        # Data rows
+                        for row_i, row_data in enumerate(
+                            attr_with_total.itertuples(index=False), 2
+                        ):
+                            is_total = row_data.FCP == "TOTAL"
+                            for col_i, val in enumerate(row_data, 1):
+                                cell = ws.cell(row=row_i, column=col_i, value=val)
+                                if is_total:
+                                    cell.font = Font(bold=True, size=10)
+                                    cell.fill = PatternFill(
+                                        "solid", fgColor="E6EFF5"
+                                    )
+                                elif isinstance(val, float):
+                                    cell.number_format = '#,##0'
+
+                        # Column widths
+                        ws.column_dimensions["A"].width = 35
+                        for col_l in "BCDEFG":
+                            ws.column_dimensions[col_l].width = 22
+
+                        xl_buf = _io.BytesIO()
+                        wb.save(xl_buf)
+                        xl_buf.seek(0)
+
+                        st.download_button(
+                            "📊 Télécharger Excel (.xlsx)",
+                            data=xl_buf.read(),
+                            file_name=(
+                                f"attribution_"
+                                f"{pd.Timestamp(period_start).strftime('%Y%m%d')}_"
+                                f"{pd.Timestamp(period_end).strftime('%Y%m%d')}.xlsx"
+                            ),
+                            mime=(
+                                "application/vnd.openxmlformats-officedocument"
+                                ".spreadsheetml.sheet"
+                            ),
+                            key="dl_attr_xl",
+                        )
+                    except Exception as e:
+                        st.error(f"Export Excel impossible : {e}")
+
+                with col_pdf_attr:
+                    if st.button(
+                        "📄 Générer PDF Attribution",
+                        key="gen_attr_pdf"
+                    ):
+                        with st.spinner("Génération PDF…"):
+                            try:
+                                from report_pdf import (
+                                    generate_attribution_pdf
+                                )
+                                pdf_bytes = generate_attribution_pdf(
+                                    attr=attr_with_total,
+                                    date_debut=pd.Timestamp(period_start),
+                                    date_fin=pd.Timestamp(period_end),
+                                )
+                                st.download_button(
+                                    "⬇️ Télécharger le PDF",
+                                    data=pdf_bytes,
+                                    file_name=(
+                                        f"attribution_"
+                                        f"{pd.Timestamp(period_start).strftime('%Y%m%d')}_"
+                                        f"{pd.Timestamp(period_end).strftime('%Y%m%d')}.pdf"
+                                    ),
+                                    mime="application/pdf",
+                                    key="dl_attr_pdf",
+                                )
+                            except Exception as e:
+                                st.error(
+                                    f"Génération PDF impossible : {e}"
+                                )
 
 
 # ---------------------------------------------------------------------------
@@ -2184,55 +2340,97 @@ elif page == "⚙️ Paramètres":
     c4.metric("Cours du jour", f"{len(quotes)}")
 
     st.divider()
-    st.subheader(f"Dividendes — {fcp}")
-    st.caption("Montant par action ajouté à la valorisation (équivalent col N dans Excel).")
-    divs = _cached_dividends_all(tuple(fcps)).get(fcp, {})
-    held_tickers = sorted(set(tx.loc[tx["fcp"] == fcp, "ticker"].dropna().tolist()))
-    if not held_tickers:
-        st.info("Aucun titre détenu pour ce FCP.")
-    else:
-        col1, col2, col3 = st.columns(3)
-        with col1:
-            div_ticker = st.selectbox("Titre", held_tickers, key="div_ticker")
-        with col2:
-            current = divs.get(div_ticker, 0.0)
-            div_amount = st.number_input(
-                "Dividende (FCFA / action)", value=float(current), step=1.0, key="div_amount"
+    st.subheader("Dividendes")
+    st.caption(
+        "Les dividendes sont stockés avec leur date de paiement. "
+        "Le montant est ajouté au cours de clôture **uniquement** à la date de paiement. "
+        "Les jours suivants, le cours est utilisé sans dividende."
+    )
+
+    all_tickers_held = sorted(set(tx["ticker"].dropna().tolist()))
+    all_divs_dated = _cached_dividends_dated()
+
+    # ── Saisie d'un nouveau dividende ────────────────────────────────────────
+    with st.expander("➕ Saisir un dividende", expanded=True):
+        c1, c2, c3, c4 = st.columns([2, 2, 2, 1])
+        with c1:
+            div_ticker = st.selectbox(
+                "Titre", options=all_tickers_held or [""],
+                key="div_ticker"
             )
-        with col3:
+        with c2:
+            div_amount = st.number_input(
+                "Montant (FCFA / action)",
+                min_value=0.0, step=1.0, value=0.0,
+                key="div_amount"
+            )
+        with c3:
+            div_date = st.date_input(
+                "Date de paiement",
+                value=date.today(),
+                key="div_date"
+            )
+        with c4:
             st.write("")
             st.write("")
-            if st.button("💾 Enregistrer dividende", key="div_save"):
-                db.set_dividend(fcp, div_ticker, float(div_amount))
-                st.success("Dividende enregistré.")
+            if st.button("💾 Enregistrer", key="div_save", type="primary"):
+                if div_amount > 0 and div_ticker:
+                    db.add_dividend_dated(
+                        ticker=div_ticker,
+                        amount=float(div_amount),
+                        payment_date=str(div_date),
+                    )
+                    _clear_data_cache()
+                    st.success(
+                        f"✅ Dividende {div_ticker} : "
+                        f"{div_amount:,.0f} FCFA/action le {div_date.strftime('%d/%m/%Y')}"
+                    )
+                    st.rerun()
+                else:
+                    st.warning("Montant doit être > 0 et un titre doit être sélectionné.")
+
+    # ── Liste des dividendes enregistrés ─────────────────────────────────────
+    if all_divs_dated:
+        st.write(f"**{len(all_divs_dated)} dividende(s) enregistré(s) :**")
+        divs_df = pd.DataFrame(all_divs_dated)
+        divs_df["payment_date"] = pd.to_datetime(divs_df["payment_date"]).dt.strftime("%d/%m/%Y")
+        divs_df["amount"] = divs_df["amount"].map(lambda v: f"{v:,.0f} FCFA".replace(",", " "))
+        render_table(
+            divs_df[["id", "ticker", "amount", "payment_date"]].rename(columns={
+                "id": "ID", "ticker": "Titre",
+                "amount": "Montant / action",
+                "payment_date": "Date paiement",
+            }),
+            height=300,
+        )
+
+        # Suppression par ID
+        col_del1, col_del2 = st.columns(2)
+        with col_del1:
+            del_id = st.number_input(
+                "Supprimer par ID", min_value=0, step=1,
+                key="div_del_id"
+            )
+            if st.button("🗑️ Supprimer ce dividende", key="div_del_one"):
+                if del_id > 0:
+                    db.delete_dividend_dated(int(del_id))
+                    _clear_data_cache()
+                    st.success(f"Dividende #{del_id} supprimé.")
+                    st.rerun()
+        with col_del2:
+            st.write("")
+            st.write("")
+            if st.button(
+                "🗑️ Effacer tous les dividendes",
+                key="div_del_all",
+                type="secondary",
+            ):
+                db.clear_all_dividends_dated()
                 _clear_data_cache()
+                st.success("Tous les dividendes supprimés.")
                 st.rerun()
-
-        if divs:
-            st.write("**Dividendes actifs :**")
-            render_table(pd.DataFrame(list(divs.items()), columns=["Symbole", "Montant"]), height=None)
-
-            col_del1, col_del2 = st.columns([1, 1])
-            with col_del1:
-                if st.button(
-                    f"🗑️ Supprimer dividende {div_ticker}",
-                    key="div_del_one",
-                ):
-                    db.set_dividend(fcp, div_ticker, 0.0)
-                    _clear_data_cache()
-                    st.success(f"Dividende de {div_ticker} supprimé.")
-                    st.rerun()
-            with col_del2:
-                if st.button(
-                    f"🗑️ Effacer tous les dividendes ({fcp})",
-                    key="div_del_all",
-                    type="secondary",
-                ):
-                    for ticker_d in list(divs.keys()):
-                        db.set_dividend(fcp, ticker_d, 0.0)
-                    _clear_data_cache()
-                    st.success(f"Tous les dividendes de {fcp} supprimés.")
-                    st.rerun()
+    else:
+        st.info("Aucun dividende enregistré.")
 
     st.divider()
     st.subheader("Maintenance")

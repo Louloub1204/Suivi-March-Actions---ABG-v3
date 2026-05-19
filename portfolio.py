@@ -15,6 +15,64 @@ import pandas as pd
 
 from fcp_calendar import previous_cours_date
 
+def get_dividends_on_date(
+    dividends_dated: list[dict],
+    ticker: str,
+    on_date: pd.Timestamp,
+) -> float:
+    """Return the dividend amount for `ticker` if `on_date` is its payment date.
+
+    `dividends_dated` is a list of dicts with keys:
+        ticker, amount, payment_date (date or Timestamp or str)
+
+    Returns 0.0 if no dividend applies on this exact date.
+    This ensures dividends are only added to the closing price on the
+    payment date itself, not on subsequent days.
+    """
+    target = pd.Timestamp(on_date).normalize()
+    for d in dividends_dated:
+        if str(d.get("ticker", "")).strip().upper() != ticker.strip().upper():
+            continue
+        try:
+            pd_date = pd.Timestamp(d["payment_date"]).normalize()
+        except (KeyError, ValueError, TypeError):
+            continue
+        if pd_date == target:
+            try:
+                return float(d["amount"])
+            except (ValueError, TypeError):
+                pass
+    return 0.0
+
+
+def resolve_dividends_for_date(
+    dividends_dated: list[dict],
+    as_of_date: pd.Timestamp,
+) -> dict[str, float]:
+    """Return {ticker: amount} for all dividends whose payment_date == as_of_date.
+
+    Used to build the legacy `dividends: dict[str, float]` argument for
+    build_dashboard and related functions, scoped to a single date.
+    """
+    result: dict[str, float] = {}
+    target = pd.Timestamp(as_of_date).normalize()
+    for d in dividends_dated:
+        try:
+            pd_date = pd.Timestamp(d["payment_date"]).normalize()
+        except (KeyError, ValueError, TypeError):
+            continue
+        if pd_date == target:
+            ticker = str(d.get("ticker", "")).strip().upper()
+            try:
+                amount = float(d["amount"])
+                if ticker:
+                    result[ticker] = result.get(ticker, 0.0) + amount
+            except (ValueError, TypeError):
+                pass
+    return result
+
+
+
 
 class PortfolioRow:
     """Holds computed metrics for one ticker in one FCP dashboard."""
@@ -812,7 +870,12 @@ def compute_period_perf(
             )
             period_tx = df.loc[mask]
             flux_in  = float(period_tx.loc[period_tx["sens"]=="ACHAT","cost_in"].sum())
-            flux_out = float(period_tx.loc[period_tx["sens"]=="VENTE","cost_out"].sum())
+            # Produit net de cession = quantité × prix de vente − frais
+            ventes_tx = period_tx.loc[period_tx["sens"] == "VENTE"]
+            flux_out = float(
+                (ventes_tx["quantite"] * ventes_tx["prix"] - ventes_tx["frais"])
+                .clip(lower=0).sum()
+            )
             flux_nets = flux_in - flux_out
         else:
             flux_nets = 0.0
@@ -834,4 +897,134 @@ def compute_period_perf(
     df_out = pd.DataFrame(rows)
     if not df_out.empty:
         df_out = df_out.sort_values("Variation nette", ascending=False).reset_index(drop=True)
+    return df_out
+
+
+# ---------------------------------------------------------------------------
+# Attribution de performance — tableau Portefeuille Initial / Achats / Ventes
+# / Dividendes / Effet Marché / Portefeuille Final
+# ---------------------------------------------------------------------------
+
+def compute_attribution(
+    transactions: pd.DataFrame,
+    cours: pd.DataFrame,
+    fcps: list[str],
+    date_debut: pd.Timestamp,
+    date_fin: pd.Timestamp,
+    dividends_dated: list[dict] | None = None,
+) -> pd.DataFrame:
+    """Compute the performance attribution table for a period.
+
+    For each FCP:
+
+      Ptf_initial   = Valo à date_debut
+      Achats        = Σ cost_in des ACHATS dans (date_debut, date_fin]
+      Ventes        = Σ cost_out des VENTES dans (date_debut, date_fin]
+      Dividendes    = Σ (div_unitaire × quantité_détenue_à_payment_date)
+                      pour tous les payment_date ∈ (date_debut, date_fin]
+      Ptf_final     = Valo à date_fin
+      Effet_marché  = Ptf_final − Ptf_initial − Achats + Ventes − Dividendes
+
+    `dividends_dated` is a list of dicts:
+        [{"ticker": "SNTS", "amount": 500, "payment_date": "2026-03-15"}, ...]
+
+    Returns one row per FCP.
+    """
+    dividends_dated = dividends_dated or []
+    d0 = pd.Timestamp(date_debut)
+    d1 = pd.Timestamp(date_fin)
+
+    rows: list[dict] = []
+
+    for fcp in fcps:
+
+        # ── Portefeuille initial ──────────────────────────────────────────
+        pos0 = compute_positions(transactions, fcp, d0)
+        ptf_initial = 0.0
+        for _, p in pos0.iterrows():
+            if float(p["quantite"]) <= 0:
+                continue
+            price = get_price_on(cours, p["ticker"], d0) or 0.0
+            ptf_initial += float(p["quantite"]) * price
+
+        # ── Portefeuille final ────────────────────────────────────────────
+        pos1 = compute_positions(transactions, fcp, d1)
+        ptf_final = 0.0
+        for _, p in pos1.iterrows():
+            if float(p["quantite"]) <= 0:
+                continue
+            price = get_price_on(cours, p["ticker"], d1) or 0.0
+            ptf_final += float(p["quantite"]) * price
+
+        # ── Flux dans la période (date_debut, date_fin] ───────────────────
+        achats = 0.0
+        ventes = 0.0
+        if not transactions.empty:
+            df = transactions.copy()
+            df["date"] = pd.to_datetime(df["date"])
+            mask = (
+                (df["fcp"] == fcp)
+                & (df["date"] > d0)
+                & (df["date"] <= d1)
+            )
+            period_tx = df.loc[mask]
+            achats = float(
+                period_tx.loc[period_tx["sens"] == "ACHAT", "cost_in"].sum()
+            )
+            # Produit net de cession = quantité × prix de vente − frais
+            ventes_tx = period_tx.loc[period_tx["sens"] == "VENTE"]
+            ventes = float(
+                (ventes_tx["quantite"] * ventes_tx["prix"] - ventes_tx["frais"])
+                .clip(lower=0).sum()
+            )
+
+        # ── Dividendes dans la période ────────────────────────────────────
+        # For each unique payment_date in the dividends list that falls
+        # inside (date_debut, date_fin], multiply dividend per share by
+        # the quantity held in this FCP on that payment date.
+        dividendes = 0.0
+        if dividends_dated:
+            seen_dates: set[str] = set()
+            for d in dividends_dated:
+                try:
+                    pd_date = pd.Timestamp(d["payment_date"]).normalize()
+                except (KeyError, ValueError, TypeError):
+                    continue
+                if not (d0 < pd_date <= d1):
+                    continue
+                ticker_d = str(d.get("ticker", "")).strip().upper()
+                amount_d = float(d.get("amount", 0) or 0)
+                if not ticker_d or amount_d == 0:
+                    continue
+                # Quantity held by this FCP on the payment date
+                pos_d = compute_positions(transactions, fcp, pd_date)
+                if pos_d.empty:
+                    continue
+                row_d = pos_d[pos_d["ticker"] == ticker_d]
+                if row_d.empty:
+                    continue
+                qty_d = float(row_d.iloc[0]["quantite"])
+                if qty_d > 0:
+                    dividendes += qty_d * amount_d
+
+        # ── Effet marché ──────────────────────────────────────────────────
+        # Ptf_final = Ptf_initial + Achats − Ventes + Dividendes + Effet_marché
+        # ⟹ Effet_marché = Ptf_final − Ptf_initial − Achats + Ventes − Dividendes
+        effet_marche = ptf_final - ptf_initial - achats + ventes - dividendes
+
+        rows.append({
+            "FCP":                 fcp,
+            "Ptf. Actions début":  ptf_initial,
+            "Achats":              achats,
+            "Ventes":              ventes,
+            "Dividendes":          dividendes,
+            "Effet marché":        effet_marche,
+            "Ptf. Actions fin":    ptf_final,
+        })
+
+    df_out = pd.DataFrame(rows)
+    if not df_out.empty:
+        df_out = df_out.sort_values(
+            "Ptf. Actions fin", ascending=False
+        ).reset_index(drop=True)
     return df_out

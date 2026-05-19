@@ -624,3 +624,191 @@ def generate_report(
     doc.build(story)
     buf.seek(0)
     return buf.read()
+
+
+# ---------------------------------------------------------------------------
+# Attribution PDF report
+# ---------------------------------------------------------------------------
+
+def generate_attribution_pdf(
+    attr: pd.DataFrame,
+    date_debut,
+    date_fin,
+) -> bytes:
+    """Generate a PDF for the performance attribution table.
+
+    `attr` must have columns:
+        FCP, Ptf. Actions début, Achats, Ventes,
+        Dividendes, Effet marché, Ptf. Actions fin
+    The last row should be the TOTAL row.
+    """
+    d0 = pd.Timestamp(date_debut)
+    d1 = pd.Timestamp(date_fin)
+    n_days = (d1 - d0).days
+    period_label = (
+        f"{d0.strftime('%d/%m/%Y')} → {d1.strftime('%d/%m/%Y')} "
+        f"({n_days} jours)"
+    )
+
+    buf = io.BytesIO()
+    doc = _build_doc(buf)
+    styles = _styles()
+
+    story: list = []
+
+    # ── Cover ────────────────────────────────────────────────────────────────
+    # Compute KPIs from data
+    data_rows = attr[attr["FCP"] != "TOTAL"]
+    total_row = attr[attr["FCP"] == "TOTAL"]
+    ptf_init_total = float(
+        total_row["Ptf. Actions début"].iloc[0]
+        if not total_row.empty else data_rows["Ptf. Actions début"].sum()
+    )
+    ptf_fin_total = float(
+        total_row["Ptf. Actions fin"].iloc[0]
+        if not total_row.empty else data_rows["Ptf. Actions fin"].sum()
+    )
+    effet_total = float(
+        total_row["Effet marché"].iloc[0]
+        if not total_row.empty else data_rows["Effet marché"].sum()
+    )
+    divs_total = float(
+        total_row["Dividendes"].iloc[0]
+        if not total_row.empty else data_rows["Dividendes"].sum()
+    )
+
+    # Simple cover
+    story += _header(styles)
+    story.append(Spacer(1, 1.5 * cm))
+    story.append(Paragraph(
+        "RAPPORT D'ATTRIBUTION DE PERFORMANCE", styles["cover_title"]
+    ))
+    story.append(Paragraph(
+        "Décomposition des Fonds Communs de Placement — BRVM",
+        styles["cover_sub"],
+    ))
+    story.append(Paragraph(f"Période : {period_label}", styles["cover_sub"]))
+    story.append(Spacer(1, 0.8 * cm))
+
+    kpi_data = [
+        [
+            Paragraph(_xof(ptf_init_total), styles["kpi_val"]),
+            Paragraph(_xof(ptf_fin_total), styles["kpi_val"]),
+            Paragraph(
+                _xof(effet_total, signed=True),
+                ParagraphStyle("kve", parent=styles["kpi_val"],
+                               textColor=colors.HexColor("#90EE90")
+                               if effet_total >= 0
+                               else colors.HexColor("#FF9999")),
+            ),
+            Paragraph(_xof(divs_total), styles["kpi_val"]),
+        ],
+        [
+            Paragraph("Ptf. initial (FCFA)", styles["kpi_lbl"]),
+            Paragraph("Ptf. final (FCFA)", styles["kpi_lbl"]),
+            Paragraph("Effet marché (FCFA)", styles["kpi_lbl"]),
+            Paragraph("Dividendes perçus (FCFA)", styles["kpi_lbl"]),
+        ],
+    ]
+    kpi_tbl = Table(
+        kpi_data,
+        colWidths=[(W - 3.2 * cm) / 4] * 4,
+        rowHeights=[1.2 * cm, .5 * cm],
+    )
+    kpi_tbl.setStyle(TableStyle([
+        ("BACKGROUND",    (0, 0), (-1, -1), BLUE_DARK),
+        ("BOX",           (0, 0), (-1, -1), 1, colors.HexColor("#6A9ABD")),
+        ("LINEAFTER",     (0, 0), (2, 1),   .5, colors.HexColor("#1A5070")),
+        ("TOPPADDING",    (0, 0), (-1, -1), 10),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
+        ("VALIGN",        (0, 0), (-1, -1), "MIDDLE"),
+    ]))
+    story.append(kpi_tbl)
+    story.append(NextPageTemplate("content"))
+    story.append(PageBreak())
+
+    # ── Attribution table ────────────────────────────────────────────────────
+    story += _header(styles)
+    story.append(Spacer(1, .25 * cm))
+    story.append(Paragraph(
+        "Tableau d'attribution de performance",
+        styles["section"],
+    ))
+    story.append(HRFlowable(
+        width="100%", thickness=1.5, color=BLUE, spaceAfter=4
+    ))
+    story.append(Paragraph(
+        f"Période : {period_label}   ·   "
+        "Effet marché = Ptf. fin − Ptf. début − Achats + Ventes − Dividendes",
+        styles["body"],
+    ))
+    story.append(Spacer(1, .2 * cm))
+
+    cols = [
+        "FCP",
+        "Ptf.\ndébut",
+        "Achats",
+        "Ventes",
+        "Dividendes",
+        "Effet\nmarché",
+        "Ptf.\nfin",
+    ]
+    col_w = [5.5*cm, 3.0*cm, 2.8*cm, 2.8*cm, 2.8*cm, 3.0*cm, 3.0*cm]
+
+    headers = cols
+    rows = [headers]
+    style_cmds = [
+        ("BACKGROUND",    (0, 0), (-1, 0), BLUE),
+        ("TEXTCOLOR",     (0, 0), (-1, 0), WHITE),
+        ("FONTNAME",      (0, 0), (-1, 0), "Helvetica-Bold"),
+        ("FONTSIZE",      (0, 0), (-1, -1), 7),
+        ("TOPPADDING",    (0, 0), (-1, -1), 4),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+        ("ALIGN",         (1, 0), (-1, -1), "RIGHT"),
+        ("ALIGN",         (0, 0), (0, -1), "LEFT"),
+        ("ROWBACKGROUNDS",(0, 1), (-1, -2), [WHITE, BLUE_LIGHT]),
+        ("LINEBELOW",     (0, 0), (-1, 0), 1.2, BLUE),
+        ("BOX",           (0, 0), (-1, -1), .5, BLUE_MID),
+    ]
+
+    for i, (_, row) in enumerate(attr.iterrows(), 1):
+        is_total = str(row["FCP"]) == "TOTAL"
+        effet = float(row.get("Effet marché", 0) or 0)
+        c_effet = GREEN if effet >= 0 else RED
+
+        rows.append([
+            row["FCP"],
+            _xof(row.get("Ptf. Actions début")),
+            _xof(row.get("Achats")),
+            _xof(row.get("Ventes")),
+            _xof(row.get("Dividendes")),
+            _xof(effet, signed=True),
+            _xof(row.get("Ptf. Actions fin")),
+        ])
+        style_cmds += [
+            ("TEXTCOLOR", (5, i), (5, i), c_effet),
+            ("FONTNAME",  (5, i), (5, i), "Helvetica-Bold"),
+        ]
+        if is_total:
+            style_cmds += [
+                ("BACKGROUND", (0, i), (-1, i), BLUE_LIGHT),
+                ("FONTNAME",   (0, i), (-1, i), "Helvetica-Bold"),
+            ]
+
+    tbl = Table(rows, colWidths=col_w, repeatRows=1)
+    tbl.setStyle(TableStyle(style_cmds))
+    story.append(tbl)
+
+    # Closing note
+    story.append(Spacer(1, .6 * cm))
+    story.append(HRFlowable(width="100%", thickness=.5, color=BLUE_MID))
+    story.append(Spacer(1, .15 * cm))
+    story.append(Paragraph(
+        f"Rapport généré le {pd.Timestamp.now().strftime('%d/%m/%Y')}  ·  "
+        "CGF GESTION  ·  Document confidentiel — usage interne uniquement.",
+        styles["caption"],
+    ))
+
+    doc.build(story)
+    buf.seek(0)
+    return buf.read()
