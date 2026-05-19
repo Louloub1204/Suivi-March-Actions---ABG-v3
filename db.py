@@ -1,11 +1,6 @@
-"""Postgres-backed storage for FCPs, transactions, and historical prices.
+"""Postgres-backed storage for FCPs, transactions, prices, targets, dividends.
 
-The connection string is read from Streamlit Secrets (`db.url`) when running
-inside Streamlit, falling back to the `DATABASE_URL` environment variable
-for local CLI scripts (seed loader, etc.).
-
-The public API of this module is identical to the previous SQLite version,
-so no other module needs to change.
+Connection string read from Streamlit Secrets (`db.url`) or DATABASE_URL env var.
 """
 from __future__ import annotations
 
@@ -28,12 +23,6 @@ SEED_DIR = APP_DIR / "seed_data"
 # ---------------------------------------------------------------------------
 
 def _get_db_url() -> str:
-    """Return the Postgres connection URL.
-
-    Priority:
-      1. Streamlit Secrets `[db] url = "..."`
-      2. Environment variable DATABASE_URL
-    """
     try:
         import streamlit as st
         url = st.secrets["db"]["url"]
@@ -54,9 +43,6 @@ def _get_db_url() -> str:
 
 
 def _normalize_url(url: str) -> str:
-    """Supabase / Neon often expose URLs as `postgres://...`. SQLAlchemy >= 1.4
-    requires `postgresql://`. We rewrite if needed and force the psycopg2 driver.
-    """
     if url.startswith("postgres://"):
         url = "postgresql://" + url[len("postgres://"):]
     if url.startswith("postgresql://") and "+psycopg2" not in url:
@@ -127,15 +113,6 @@ SCHEMA_STATEMENTS = [
     """,
     "CREATE INDEX IF NOT EXISTS idx_prices_ticker_date ON prices(ticker, date)",
     """
-    """
-    CREATE TABLE IF NOT EXISTS dividends_dated (
-        id BIGSERIAL PRIMARY KEY,
-        ticker TEXT NOT NULL,
-        amount DOUBLE PRECISION NOT NULL,
-        payment_date DATE NOT NULL,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-    )
-    """,
     CREATE TABLE IF NOT EXISTS quotes_today (
         ticker TEXT PRIMARY KEY,
         name TEXT,
@@ -156,6 +133,17 @@ SCHEMA_STATEMENTS = [
         PRIMARY KEY (fcp, ticker)
     )
     """,
+    """
+    CREATE TABLE IF NOT EXISTS dividends_dated (
+        id BIGSERIAL PRIMARY KEY,
+        ticker TEXT NOT NULL,
+        amount DOUBLE PRECISION NOT NULL,
+        payment_date DATE NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS idx_divdated_ticker ON dividends_dated(ticker)",
+    "CREATE INDEX IF NOT EXISTS idx_divdated_date ON dividends_dated(payment_date)",
     """
     CREATE TABLE IF NOT EXISTS sync_log (
         kind TEXT PRIMARY KEY,
@@ -179,12 +167,6 @@ SCHEMA_STATEMENTS = [
 
 
 def init_db(force: bool = False) -> None:
-    """Create the schema if absent. Optionally seed from local CSVs.
-
-    On Postgres this is idempotent and **does not auto-seed** (since the data
-    is meant to live persistently). To populate an empty database, run the
-    `seed_postgres.py` script provided alongside the app.
-    """
     with conn() as c:
         for stmt in SCHEMA_STATEMENTS:
             c.execute(text(stmt))
@@ -193,18 +175,7 @@ def init_db(force: bool = False) -> None:
         seed_from_files()
 
 
-def _is_empty() -> bool:
-    with conn() as c:
-        n = c.execute(text("SELECT COUNT(*) FROM transactions")).scalar() or 0
-    return n == 0
-
-
 def seed_from_files() -> None:
-    """Load all CSV/JSON files from `seed_data/` into the database.
-
-    Used by the `seed_postgres.py` CLI script. Calling this on a populated
-    database will REPLACE the existing data — be careful.
-    """
     if not SEED_DIR.exists():
         raise RuntimeError(f"seed_data/ folder not found at {SEED_DIR}")
 
@@ -227,7 +198,8 @@ def seed_from_files() -> None:
         df["date"] = pd.to_datetime(df["date"]).dt.date
         with eng.begin() as c:
             c.execute(text("DELETE FROM transactions"))
-        df.to_sql("transactions", eng, if_exists="append", index=False, method="multi", chunksize=500)
+        df.to_sql("transactions", eng, if_exists="append", index=False,
+                  method="multi", chunksize=500)
 
     cours_file = SEED_DIR / "cours.csv"
     if cours_file.exists():
@@ -237,7 +209,8 @@ def seed_from_files() -> None:
         df["source"] = "seed"
         with eng.begin() as c:
             c.execute(text("DELETE FROM prices"))
-        df.to_sql("prices", eng, if_exists="append", index=False, method="multi", chunksize=1000)
+        df.to_sql("prices", eng, if_exists="append", index=False,
+                  method="multi", chunksize=1000)
 
     t4_file = SEED_DIR / "table4.csv"
     if t4_file.exists():
@@ -245,7 +218,8 @@ def seed_from_files() -> None:
         df["fetched_at"] = pd.Timestamp.now().isoformat(timespec="seconds")
         with eng.begin() as c:
             c.execute(text("DELETE FROM quotes_today"))
-        df.to_sql("quotes_today", eng, if_exists="append", index=False, method="multi", chunksize=500)
+        df.to_sql("quotes_today", eng, if_exists="append", index=False,
+                  method="multi", chunksize=500)
 
 
 # ---------------------------------------------------------------------------
@@ -382,7 +356,6 @@ def delete_transaction(tx_id: int) -> None:
 
 
 def upsert_prices(df: pd.DataFrame, source: str = "manual") -> int:
-    """Insert or replace prices. One row per (date, ticker)."""
     if df.empty:
         return 0
     df = df.copy()
@@ -448,7 +421,6 @@ def set_dividend(fcp: str, ticker: str, amount: float, date: str | None = None) 
 
 
 def replace_transactions(df: pd.DataFrame) -> int:
-    """Wipe and reload the transactions table."""
     required = {"date", "fcp", "ticker", "sens", "quantite", "prix",
                 "valeur", "frais", "cost_in", "cost_out", "cmp_at_tx"}
     missing = required - set(df.columns)
@@ -469,7 +441,6 @@ def replace_transactions(df: pd.DataFrame) -> int:
 
 
 def replace_prices_history(df: pd.DataFrame, source: str = "sharepoint") -> int:
-    """Wipe and reload the prices table."""
     required = {"date", "ticker", "price"}
     missing = required - set(df.columns)
     if missing:
@@ -490,12 +461,10 @@ def replace_prices_history(df: pd.DataFrame, source: str = "sharepoint") -> int:
 
 
 # ---------------------------------------------------------------------------
-# Sync log — tracks daily auto-sync runs
+# Sync log
 # ---------------------------------------------------------------------------
 
 def get_sync_status(kind: str) -> dict | None:
-    """Return the last sync record for `kind` (e.g. 'transactions', 'cours_history',
-    'brvm_quotes'). Returns None if no run has been recorded yet."""
     with conn() as c:
         row = c.execute(
             text("SELECT kind, last_run_date, last_run_at, status, message "
@@ -514,7 +483,6 @@ def get_sync_status(kind: str) -> dict | None:
 
 
 def record_sync(kind: str, status: str, message: str = "") -> None:
-    """Record (or upsert) a sync run with today's date."""
     with conn() as c:
         c.execute(
             text("""INSERT INTO sync_log(kind, last_run_date, last_run_at, status, message)
@@ -529,25 +497,22 @@ def record_sync(kind: str, status: str, message: str = "") -> None:
 
 
 def needs_sync_today(kind: str) -> bool:
-    """True if `kind` has not been successfully synced today."""
     rec = get_sync_status(kind)
     if not rec:
         return True
     if rec["status"] != "success":
         return True
-    last = rec["last_run_date"]
-    # last is a datetime.date object (Postgres DATE). Compare with today.
     import datetime as _dt
+    last = rec["last_run_date"]
     today = _dt.date.today()
     return last != today
 
 
 # ---------------------------------------------------------------------------
-# Targets (pondérations cibles par FCP)
+# Targets
 # ---------------------------------------------------------------------------
 
 def get_targets(fcp: str | None = None) -> pd.DataFrame:
-    """Return all targets, optionally filtered by FCP."""
     eng = get_engine()
     if fcp:
         return pd.read_sql_query(
@@ -565,7 +530,6 @@ def get_targets(fcp: str | None = None) -> pd.DataFrame:
 def upsert_target(fcp: str, ticker: str,
                   weight_pct: float | None,
                   amount_fcfa: float | None) -> None:
-    """Insert or update a single target row."""
     with conn() as c:
         c.execute(
             text("""INSERT INTO targets(fcp, ticker, weight_pct, amount_fcfa, updated_at)
@@ -587,10 +551,6 @@ def delete_target(fcp: str, ticker: str) -> None:
 
 
 def replace_targets_for_fcp(fcp: str, df: pd.DataFrame) -> int:
-    """Wipe all targets for a FCP and reload from DataFrame.
-
-    `df` must have columns: ticker, weight_pct (nullable), amount_fcfa (nullable).
-    """
     df = df.copy()
     df["fcp"] = fcp
     eng = get_engine()
@@ -607,10 +567,6 @@ def replace_targets_for_fcp(fcp: str, df: pd.DataFrame) -> int:
 
 
 def replace_all_targets(df: pd.DataFrame) -> int:
-    """Wipe the entire targets table and reload from DataFrame.
-
-    `df` must have columns: fcp, ticker, weight_pct (nullable), amount_fcfa (nullable).
-    """
     df = df.copy()
     eng = get_engine()
     with eng.begin() as c:
@@ -624,12 +580,14 @@ def replace_all_targets(df: pd.DataFrame) -> int:
         method="multi", chunksize=200,
     )
     return len(valid)
+
+
 # ---------------------------------------------------------------------------
-# Dividends with payment dates
+# Dividends with payment dates (date-specific, applied only on payment day)
 # ---------------------------------------------------------------------------
 
 def get_dividends_dated() -> list[dict]:
-    """Return all dividends with their payment dates."""
+    """Return all dividends with their payment dates as a list of dicts."""
     eng = get_engine()
     df = pd.read_sql_query(
         text("SELECT id, ticker, amount, payment_date "
@@ -644,15 +602,17 @@ def add_dividend_dated(
     amount: float,
     payment_date: str,
 ) -> int:
-    """Insert a new dividend entry. Returns the new id."""
+    """Insert a new dated dividend entry. Returns the new id."""
     with conn() as c:
         result = c.execute(
             text("""INSERT INTO dividends_dated(ticker, amount, payment_date)
                     VALUES (:ticker, :amount, :pd)
                     RETURNING id"""),
-            {"ticker": ticker.strip().upper(),
-             "amount": amount,
-             "pd": payment_date},
+            {
+                "ticker": ticker.strip().upper(),
+                "amount": amount,
+                "pd": payment_date,
+            },
         )
         return int(result.scalar())
 
