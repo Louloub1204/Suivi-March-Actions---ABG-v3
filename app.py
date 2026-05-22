@@ -359,6 +359,33 @@ def _clear_data_cache() -> None:
     _cached_known_tickers.clear()
 
 
+def _build_divs_by_fcp(
+    fcps_list: list[str],
+    as_of: "pd.Timestamp",
+) -> dict[str, dict[str, float]]:
+    """Build {fcp: {ticker: amount}} merging legacy + dated dividends.
+
+    Legacy dividends (no date) apply every day.
+    Dated dividends apply ONLY on their payment_date.
+    Dated values override legacy values for the same ticker on that date.
+    """
+    # Legacy: {fcp: {ticker: amount}}
+    legacy = _cached_dividends_all(tuple(fcps_list))
+    # Dated: {ticker: amount} for as_of date only
+    dated = resolve_dividends_for_date(_cached_dividends_dated(), as_of)
+
+    if not dated:
+        return legacy
+
+    # Merge: start from legacy, add/override with dated for each FCP
+    merged: dict[str, dict[str, float]] = {}
+    for fcp_name in fcps_list:
+        base = dict(legacy.get(fcp_name, {}))
+        base.update(dated)  # dated dividends apply to all FCPs
+        merged[fcp_name] = base
+    return merged
+
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -490,7 +517,10 @@ if page == "📈 Tableau de bord":
 
     tx_all = _cached_transactions()
     prices = _cached_prices()
-    divs = _cached_dividends_all(tuple(fcps)).get(fcp, {})
+    # Legacy dividends (sans date) + dividendes datés filtrés sur as_of_ts
+    divs = {**_cached_dividends_all(tuple(fcps)).get(fcp, {})}
+    dated_divs = resolve_dividends_for_date(_cached_dividends_dated(), as_of_ts)
+    divs.update(dated_divs)  # dated overrides/adds on top of legacy
 
     rows, totals = build_dashboard(tx_all, prices, fcp, as_of_ts, divs)
     prev_date = totals["prev_date"]
@@ -619,7 +649,7 @@ elif page == "📊 Récap variations":
         tx_all = _cached_transactions()
         prices = _cached_prices()
         all_fcps = _cached_fcps()
-        divs_by_fcp = _cached_dividends_all(tuple(all_fcps))
+        divs_by_fcp = _build_divs_by_fcp(all_fcps, as_of_ts)
         recap = compute_recap(tx_all, prices, all_fcps, as_of_ts, divs_by_fcp)
 
     tab_day, tab_period = st.tabs(["📅 Variation du jour / YTD", "📆 Analyse sur période"])
@@ -1025,8 +1055,7 @@ elif page == "🎯 Expositions":
     tx_all = _cached_transactions()
     prices = _cached_prices()
     all_fcps = _cached_fcps()
-    divs_by_fcp = _cached_dividends_all(tuple(all_fcps))
-
+    divs_by_fcp = _build_divs_by_fcp(all_fcps, as_of_ts)
     filtre_options = ["Tous les FCPs"] + all_fcps
     filtre_fcp = st.selectbox(
         "Périmètre d'analyse",
@@ -1365,7 +1394,7 @@ elif page == "📋 Suivi des cibles":
 
     tx_all = _cached_transactions()
     prices = _cached_prices()
-    divs = _cached_dividends_all(tuple(fcps)).get(fcp, {})
+    divs = _build_divs_by_fcp(list(fcps), as_of_ts).get(fcp, {})
 
     # ── Import de cibles ────────────────────────────────────────────────────
     with st.expander("📥 Importer les cibles (CSV ou Excel)", expanded=False):
@@ -1561,7 +1590,7 @@ elif page == "📋 Suivi des cibles":
             targets_df_f = db.get_targets(fcp_name)
             if targets_df_f.empty:
                 continue
-            divs_f = _cached_dividends_all(tuple(fcps)).get(fcp_name, {})
+            divs_f = _build_divs_by_fcp(fcps, as_of_ts).get(fcp_name, {})
             t = compute_tracking(
                 tx_all, prices, targets_df_f, fcp_name, as_of_ts, divs_f
             )
@@ -1752,7 +1781,7 @@ elif page == "📋 Suivi des cibles":
     else:
         fcp_scope = scope
         targets_df = db.get_targets(fcp_scope)
-        divs_scope = _cached_dividends_all(tuple(fcps)).get(fcp_scope, {})
+        divs_scope = _build_divs_by_fcp(fcps, as_of_ts).get(fcp_scope, {})
 
         if targets_df.empty:
             st.info(
