@@ -1441,6 +1441,126 @@ elif page == "🎯 Expositions":
                 key="dl_conc",
             )
 
+    # ── Section 4: Dividendes perçus par titre et par FCP ──────────────────
+    st.divider()
+    st.subheader("💰 Dividendes perçus")
+    st.caption("Montant total reçu par titre et par FCP selon l'année choisie.")
+
+    current_year = as_of_ts.year
+    div_year = st.selectbox(
+        "Année",
+        options=list(range(current_year, current_year - 6, -1)),
+        index=0,
+        key="div_year_select",
+    )
+
+    all_divs_dated = _cached_dividends_dated()
+    # Filter dividends for selected year
+    year_divs = [
+        d for d in all_divs_dated
+        if pd.Timestamp(d["payment_date"]).year == div_year
+    ]
+
+    if not year_divs:
+        st.info(f"Aucun dividende enregistré pour l'année {div_year}.")
+    else:
+        # Build recap: for each dividend, compute amount per FCP
+        from portfolio import compute_positions as _cp
+
+        recap_rows = []
+        tx_all_div = _tx_all_global
+        all_fcps_div = _all_fcps_global
+
+        for d in year_divs:
+            ticker_d = str(d["ticker"]).strip().upper()
+            amount_d = float(d["amount"])
+            pay_date = pd.Timestamp(d["payment_date"])
+
+            for fcp_name in all_fcps_div:
+                pos = _cp(tx_all_div, fcp_name, pay_date)
+                if pos.empty:
+                    continue
+                row_t = pos[pos["ticker"] == ticker_d]
+                if row_t.empty:
+                    continue
+                qty = float(row_t.iloc[0]["quantite"])
+                if qty <= 0:
+                    continue
+                total_div = qty * amount_d
+                recap_rows.append({
+                    "FCP":           fcp_name,
+                    "Titre":         ticker_d,
+                    "Date paiement": pay_date.strftime("%d/%m/%Y"),
+                    "Div./action":   amount_d,
+                    "Qté détenue":   qty,
+                    "Total reçu":    total_div,
+                })
+
+        if not recap_rows:
+            st.info(
+                f"Aucune position détenue aux dates de paiement "
+                f"des dividendes de {div_year}."
+            )
+        else:
+            div_df = pd.DataFrame(recap_rows)
+
+            # Global KPIs
+            total_all = float(div_df["Total reçu"].sum())
+            n_tickers = div_df["Titre"].nunique()
+            n_fcps_d  = div_df["FCP"].nunique()
+            c1, c2, c3 = st.columns(3)
+            c1.metric("Total dividendes perçus", fmt_xof(total_all))
+            c2.metric("Titres concernés", str(n_tickers))
+            c3.metric("FCPs concernés", str(n_fcps_d))
+
+            st.divider()
+
+            # Display table
+            disp_div = div_df.copy()
+            disp_div["Div./action"] = disp_div["Div./action"].map(
+                lambda v: f"{v:,.0f} FCFA".replace(",", " ")
+            )
+            disp_div["Qté détenue"] = disp_div["Qté détenue"].map(
+                lambda v: f"{v:,.0f}".replace(",", " ")
+            )
+            disp_div["Total reçu"] = disp_div["Total reçu"].map(fmt_xof)
+            render_table(disp_div, height=400)
+
+            st.divider()
+
+            # Summary by ticker (cross-FCP)
+            st.subheader("Par titre — tous FCPs confondus")
+            by_ticker_div = (
+                div_df.groupby(["Titre", "Date paiement", "Div./action"])
+                ["Total reçu"].sum()
+                .reset_index()
+                .sort_values("Total reçu", ascending=False)
+            )
+            by_ticker_div["Div./action"] = by_ticker_div["Div./action"].map(
+                lambda v: f"{v:,.0f} FCFA".replace(",", " ")
+            )
+            by_ticker_div["Total reçu"] = by_ticker_div["Total reçu"].map(fmt_xof)
+            render_table(by_ticker_div, height=None)
+
+            # Summary by FCP
+            st.subheader("Par FCP — tous titres confondus")
+            by_fcp_div = (
+                div_df.groupby("FCP")["Total reçu"].sum()
+                .sort_values(ascending=False)
+                .reset_index()
+            )
+            by_fcp_div["Total reçu"] = by_fcp_div["Total reçu"].map(fmt_xof)
+            render_table(by_fcp_div, height=None)
+
+            # Export
+            st.download_button(
+                "⬇️ Exporter les dividendes (CSV)",
+                data=div_df.to_csv(index=False).encode("utf-8"),
+                file_name=f"dividendes_{div_year}.csv",
+                mime="text/csv",
+                key="dl_dividendes",
+            )
+
 
 # ---------------------------------------------------------------------------
 # Page: Suivi des cibles
