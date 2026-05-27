@@ -1515,48 +1515,55 @@ elif page == "🎯 Expositions":
 
             st.divider()
 
-            # Display table
-            disp_div = div_df.copy()
-            disp_div["Div./action"] = disp_div["Div./action"].map(
+            # ── Matrice Titres × FCPs ───────────────────────────────────────
+            st.subheader("Matrice dividendes — Titres × FCPs")
+            st.caption("Montant total reçu (FCFA) par titre (lignes) et par FCP (colonnes).")
+
+            # Pivot: rows=ticker, cols=FCP, values=Total reçu
+            matrix = div_df.pivot_table(
+                index=["Titre", "Date paiement", "Div./action"],
+                columns="FCP",
+                values="Total reçu",
+                aggfunc="sum",
+                fill_value=0,
+            ).reset_index()
+
+            # Add a TOTAL column
+            fcp_cols = [c for c in matrix.columns
+                        if c not in ["Titre", "Date paiement", "Div./action"]]
+            matrix["TOTAL"] = matrix[fcp_cols].sum(axis=1)
+
+            # Sort by TOTAL descending
+            matrix = matrix.sort_values("TOTAL", ascending=False).reset_index(drop=True)
+
+            # Add TOTAL row at bottom
+            total_row = {"Titre": "TOTAL", "Date paiement": "", "Div./action": ""}
+            for col in fcp_cols + ["TOTAL"]:
+                total_row[col] = float(matrix[col].sum())
+            matrix = pd.concat(
+                [matrix, pd.DataFrame([total_row])],
+                ignore_index=True,
+            )
+
+            # Format for display
+            disp_matrix = matrix.copy()
+            disp_matrix["Div./action"] = disp_matrix["Div./action"].map(
                 lambda v: f"{v:,.0f} FCFA".replace(",", " ")
+                if isinstance(v, (int, float)) and v else str(v or "")
             )
-            disp_div["Qté détenue"] = disp_div["Qté détenue"].map(
-                lambda v: f"{v:,.0f}".replace(",", " ")
-            )
-            disp_div["Total reçu"] = disp_div["Total reçu"].map(fmt_xof)
-            render_table(disp_div, height=400)
+            for col in fcp_cols + ["TOTAL"]:
+                disp_matrix[col] = disp_matrix[col].map(
+                    lambda v: fmt_xof(v) if isinstance(v, (int, float)) and v > 0
+                    else ("—" if isinstance(v, (int, float)) else str(v or ""))
+                )
 
-            st.divider()
-
-            # Summary by ticker (cross-FCP)
-            st.subheader("Par titre — tous FCPs confondus")
-            by_ticker_div = (
-                div_df.groupby(["Titre", "Date paiement", "Div./action"])
-                ["Total reçu"].sum()
-                .reset_index()
-                .sort_values("Total reçu", ascending=False)
-            )
-            by_ticker_div["Div./action"] = by_ticker_div["Div./action"].map(
-                lambda v: f"{v:,.0f} FCFA".replace(",", " ")
-            )
-            by_ticker_div["Total reçu"] = by_ticker_div["Total reçu"].map(fmt_xof)
-            render_table(by_ticker_div, height=None)
-
-            # Summary by FCP
-            st.subheader("Par FCP — tous titres confondus")
-            by_fcp_div = (
-                div_df.groupby("FCP")["Total reçu"].sum()
-                .sort_values(ascending=False)
-                .reset_index()
-            )
-            by_fcp_div["Total reçu"] = by_fcp_div["Total reçu"].map(fmt_xof)
-            render_table(by_fcp_div, height=None)
+            render_table(disp_matrix, height=500)
 
             # Export
             st.download_button(
-                "⬇️ Exporter les dividendes (CSV)",
-                data=div_df.to_csv(index=False).encode("utf-8"),
-                file_name=f"dividendes_{div_year}.csv",
+                "⬇️ Exporter la matrice (CSV)",
+                data=matrix.to_csv(index=False).encode("utf-8"),
+                file_name=f"dividendes_matrice_{div_year}.csv",
                 mime="text/csv",
                 key="dl_dividendes",
             )
