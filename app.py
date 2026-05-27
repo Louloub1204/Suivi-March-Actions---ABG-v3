@@ -1568,6 +1568,147 @@ elif page == "🎯 Expositions":
                 key="dl_dividendes",
             )
 
+    # ── Section 5: Dividendes à percevoir ────────────────────────────────────
+    st.divider()
+    st.subheader("📅 Dividendes à percevoir")
+    st.caption(
+        "Estimation basée sur les positions à la **date de valorisation** sélectionnée "
+        "dans la sidebar. Les quantités peuvent évoluer avant la date de paiement. "
+        "Seuls les dividendes dont la date de paiement est **postérieure** à la date "
+        "de valorisation sont affichés."
+    )
+
+    all_divs_dated_fut = _cached_dividends_dated()
+    # Dividends with payment_date AFTER as_of_ts (future payments)
+    future_divs = [
+        d for d in all_divs_dated_fut
+        if pd.Timestamp(d["payment_date"]).normalize() > as_of_ts.normalize()
+    ]
+
+    if not future_divs:
+        st.info(
+            "Aucun dividende futur enregistré. "
+            "Ajoutez des dividendes avec une date de paiement future "
+            "dans l'onglet **⚙️ Paramètres**."
+        )
+    else:
+        st.warning(
+            f"⚠️ **{len(future_divs)} dividende(s) futur(s)** — estimation basée sur "
+            f"les positions au {as_of_ts.strftime('%d/%m/%Y')}. "
+            "Les acquisitions/cessions futures modifieront ces montants."
+        )
+
+        from portfolio import compute_positions as _cp_fut
+
+        fut_rows = []
+        tx_all_fut = _tx_all_global
+        all_fcps_fut = _all_fcps_global
+
+        for d in future_divs:
+            ticker_d = str(d["ticker"]).strip().upper()
+            amount_d = float(d["amount"])
+            pay_date = pd.Timestamp(d["payment_date"])
+
+            for fcp_name in all_fcps_fut:
+                # Use positions at as_of_ts (current snapshot)
+                pos = _cp_fut(tx_all_fut, fcp_name, as_of_ts)
+                if pos.empty:
+                    continue
+                row_t = pos[pos["ticker"] == ticker_d]
+                if row_t.empty:
+                    continue
+                qty = float(row_t.iloc[0]["quantite"])
+                if qty <= 0:
+                    continue
+                fut_rows.append({
+                    "FCP":              fcp_name,
+                    "Titre":            ticker_d,
+                    "Date paiement":    pay_date.strftime("%d/%m/%Y"),
+                    "Jours restants":   (pay_date - as_of_ts).days,
+                    "Div./action":      amount_d,
+                    "Qté actuelle":     qty,
+                    "Estimation reçu":  qty * amount_d,
+                })
+
+        if not fut_rows:
+            st.info("Aucune position actuelle sur les titres avec dividendes futurs.")
+        else:
+            fut_df = pd.DataFrame(fut_rows)
+
+            # KPIs
+            total_fut = float(fut_df["Estimation reçu"].sum())
+            n_tick_fut = fut_df["Titre"].nunique()
+            n_fcp_fut  = fut_df["FCP"].nunique()
+            c1, c2, c3 = st.columns(3)
+            c1.metric("Estimation totale", fmt_xof(total_fut))
+            c2.metric("Titres concernés", str(n_tick_fut))
+            c3.metric("FCPs concernés", str(n_fcp_fut))
+
+            st.divider()
+
+            # ── Matrice Titres × FCPs ─────────────────────────────────────
+            st.subheader("Matrice dividendes à percevoir — Titres × FCPs")
+            st.caption(
+                "Montant estimé (FCFA) basé sur les positions actuelles. "
+                "🔸 = paiement dans moins de 30 jours."
+            )
+
+            # Pivot
+            mat_fut = fut_df.pivot_table(
+                index=["Titre", "Date paiement", "Jours restants", "Div./action"],
+                columns="FCP",
+                values="Estimation reçu",
+                aggfunc="sum",
+                fill_value=0,
+            ).reset_index()
+
+            fcp_cols_fut = [
+                c for c in mat_fut.columns
+                if c not in ["Titre", "Date paiement", "Jours restants", "Div./action"]
+            ]
+            mat_fut["TOTAL"] = mat_fut[fcp_cols_fut].sum(axis=1)
+            mat_fut = mat_fut.sort_values(
+                ["Date paiement", "TOTAL"], ascending=[True, False]
+            ).reset_index(drop=True)
+
+            # TOTAL row
+            total_row_fut = {
+                "Titre": "TOTAL", "Date paiement": "",
+                "Jours restants": "", "Div./action": "",
+            }
+            for col in fcp_cols_fut + ["TOTAL"]:
+                total_row_fut[col] = float(mat_fut[col].sum())
+            mat_fut = pd.concat(
+                [mat_fut, pd.DataFrame([total_row_fut])],
+                ignore_index=True,
+            )
+
+            # Format
+            disp_fut = mat_fut.copy()
+            disp_fut["Div./action"] = disp_fut["Div./action"].map(
+                lambda v: f"{v:,.0f} FCFA".replace(",", " ")
+                if isinstance(v, (int, float)) and v else str(v or "")
+            )
+            disp_fut["Jours restants"] = disp_fut["Jours restants"].map(
+                lambda v: f"🔸 {int(v)}j" if isinstance(v, (int, float)) and 0 < v <= 30
+                else (f"{int(v)}j" if isinstance(v, (int, float)) and v > 0 else "")
+            )
+            for col in fcp_cols_fut + ["TOTAL"]:
+                disp_fut[col] = disp_fut[col].map(
+                    lambda v: fmt_xof(v) if isinstance(v, (int, float)) and v > 0
+                    else ("—" if isinstance(v, (int, float)) else str(v or ""))
+                )
+
+            render_table(disp_fut, height=400)
+
+            st.download_button(
+                "⬇️ Exporter les dividendes à percevoir (CSV)",
+                data=fut_df.to_csv(index=False).encode("utf-8"),
+                file_name=f"dividendes_a_percevoir_{as_of_ts.date()}.csv",
+                mime="text/csv",
+                key="dl_dividendes_fut",
+            )
+
 
 # ---------------------------------------------------------------------------
 # Page: Suivi des cibles
