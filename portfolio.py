@@ -13,7 +13,13 @@ from __future__ import annotations
 
 import pandas as pd
 
-from fcp_calendar import previous_cours_date
+from fcp_calendar import previous_cours_date as _pcd_raw
+import functools as _functools
+
+@_functools.lru_cache(maxsize=512)
+def previous_cours_date(fcp: str, d) -> "pd.Timestamp":
+    """Memoized wrapper — same date+fcp always returns same result."""
+    return _pcd_raw(fcp, d)
 
 def get_dividends_on_date(
     dividends_dated: list[dict],

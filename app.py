@@ -318,12 +318,12 @@ _did_sync = run_daily_auto_sync_if_needed()
 # These wrap the db.* readers with a 5-minute TTL. After any write
 # (transactions, prices, dividends), call _clear_data_cache() to refresh.
 
-@st.cache_data(ttl=300, show_spinner=False)
+@st.cache_data(ttl=600, show_spinner=False)
 def _cached_transactions() -> pd.DataFrame:
     return db.get_all_transactions_for_compute()
 
 
-@st.cache_data(ttl=300, show_spinner=False)
+@st.cache_data(ttl=600, show_spinner=False)
 def _cached_prices() -> pd.DataFrame:
     return db.get_prices()
 
@@ -335,7 +335,22 @@ def _cached_fcps() -> list[str]:
 
 @st.cache_data(ttl=300, show_spinner=False)
 def _cached_dividends_all(fcps_tuple: tuple[str, ...]) -> dict[str, dict[str, float]]:
-    return {f: db.get_dividends(f) for f in fcps_tuple}
+    """Single query for all FCPs instead of N separate queries."""
+    try:
+        from sqlalchemy import text as _text
+        eng = db.get_engine()
+        import pandas as _pd
+        df = _pd.read_sql_query(
+            _text("SELECT fcp, ticker, amount FROM dividends"),
+            eng,
+        )
+        result: dict[str, dict[str, float]] = {f: {} for f in fcps_tuple}
+        for _, row in df.iterrows():
+            if row["fcp"] in result:
+                result[row["fcp"]][row["ticker"]] = float(row["amount"])
+        return result
+    except Exception:
+        return {f: db.get_dividends(f) for f in fcps_tuple}
 
 
 @st.cache_data(ttl=300, show_spinner=False)
@@ -349,6 +364,42 @@ def _cached_known_tickers() -> list[str]:
     return db.get_known_tickers()
 
 
+@st.cache_data(ttl=600, show_spinner=False)
+def _cached_exposures_data(
+    as_of_str: str, tx_hash: int, prices_hash: int,
+    scope_key: str,
+) -> "pd.DataFrame":
+    """Cache compute_exposures — expensive cross-FCP calculation."""
+    from portfolio import compute_exposures as _ce
+    tx = _cached_transactions()
+    prices = _cached_prices()
+    all_fcps = _cached_fcps()
+    if scope_key == "ALL":
+        fcps_scope = all_fcps
+    else:
+        fcps_scope = [scope_key]
+    divs = _build_divs_by_fcp(fcps_scope, pd.Timestamp(as_of_str))
+    return _ce(tx, prices, fcps_scope, pd.Timestamp(as_of_str), divs)
+
+
+@st.cache_data(ttl=600, show_spinner=False)
+def _cached_recap_data(as_of_str: str, tx_hash: int, prices_hash: int) -> "pd.DataFrame":
+    """Cache compute_recap — invalidates when data or date changes."""
+    from portfolio import compute_recap as _cr
+    tx = _cached_transactions()
+    prices = _cached_prices()
+    all_fcps = _cached_fcps()
+    divs = _build_divs_by_fcp(all_fcps, pd.Timestamp(as_of_str))
+    return _cr(tx, prices, all_fcps, pd.Timestamp(as_of_str), divs)
+
+
+def _data_hash() -> tuple[int, int]:
+    """Cheap hash of transactions and prices row counts for cache invalidation."""
+    tx = _cached_transactions()
+    prices = _cached_prices()
+    return (len(tx), len(prices))
+
+
 def _clear_data_cache() -> None:
     """Invalidate all cached reads. Call after any write."""
     _cached_transactions.clear()
@@ -357,6 +408,8 @@ def _clear_data_cache() -> None:
     _cached_dividends_all.clear()
     _cached_dividends_dated.clear()
     _cached_known_tickers.clear()
+    _cached_recap_data.clear()
+    _cached_exposures_data.clear()
 
 
 def _build_divs_by_fcp(
@@ -507,6 +560,11 @@ with st.sidebar:
 # always rendered, including after the first auto-sync of the day)
 render_sync_status_sidebar()
 
+# Pre-fetch shared data once per run (used across all pages)
+_tx_all_global   = _cached_transactions()
+_prices_global   = _cached_prices()
+_all_fcps_global = _cached_fcps()
+
 
 # ---------------------------------------------------------------------------
 # Page: Dashboard
@@ -515,8 +573,8 @@ if page == "📈 Tableau de bord":
     st.header(f"{fcp}")
     as_of_ts = pd.Timestamp(as_of)
 
-    tx_all = _cached_transactions()
-    prices = _cached_prices()
+    tx_all = _tx_all_global
+    prices = _prices_global
     # Legacy dividends (sans date) + dividendes datés filtrés sur as_of_ts
     divs = {**_cached_dividends_all(tuple(fcps)).get(fcp, {})}
     dated_divs = resolve_dividends_for_date(_cached_dividends_dated(), as_of_ts)
@@ -645,12 +703,12 @@ elif page == "📊 Récap variations":
     st.header("Récap variations — tous les FCPs")
     as_of_ts = pd.Timestamp(as_of)
 
-    with st.spinner("Calcul des variations pour les 24 FCPs…"):
-        tx_all = _cached_transactions()
-        prices = _cached_prices()
-        all_fcps = _cached_fcps()
-        divs_by_fcp = _build_divs_by_fcp(all_fcps, as_of_ts)
-        recap = compute_recap(tx_all, prices, all_fcps, as_of_ts, divs_by_fcp)
+    tx_all = _tx_all_global
+    prices = _prices_global
+    all_fcps = _all_fcps_global
+    tx_h, pr_h = len(tx_all), len(prices)
+    recap = _cached_recap_data(as_of_ts.isoformat(), tx_h, pr_h)
+    divs_by_fcp = _build_divs_by_fcp(all_fcps, as_of_ts)
 
     tab_day, tab_period = st.tabs(["📅 Variation du jour / YTD", "📆 Analyse sur période"])
 
@@ -1052,9 +1110,9 @@ elif page == "🎯 Expositions":
     as_of_ts = pd.Timestamp(as_of)
 
     # ── Filtre FCP ──────────────────────────────────────────────────────────
-    tx_all = _cached_transactions()
-    prices = _cached_prices()
-    all_fcps = _cached_fcps()
+    tx_all = _tx_all_global
+    prices = _prices_global
+    all_fcps = _all_fcps_global
     divs_by_fcp = _build_divs_by_fcp(all_fcps, as_of_ts)
     filtre_options = ["Tous les FCPs"] + all_fcps
     filtre_fcp = st.selectbox(
@@ -1078,8 +1136,11 @@ elif page == "🎯 Expositions":
     )
 
     with st.spinner(f"Calcul des expositions — {scope_label}…"):
-        divs_scope = {f: divs_by_fcp.get(f, {}) for f in fcps_scope}
-        exp = compute_exposures(tx_all, prices, fcps_scope, as_of_ts, divs_scope)
+        tx_h2, pr_h2 = len(tx_all), len(prices)
+        exp = _cached_exposures_data(
+            as_of_ts.isoformat(), tx_h2, pr_h2,
+            "ALL" if filtre_fcp == "Tous les FCPs" else filtre_fcp,
+        )
 
     if exp.empty:
         st.info("Aucune position à afficher pour ce périmètre.")
