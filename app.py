@@ -1064,21 +1064,43 @@ elif page == "📊 Récap variations":
                 }])
                 attr_with_total = pd.concat([attr, totals_row], ignore_index=True)
 
-                # Format for display
+                # ── Tableau principal d'attribution ───────────────────────
                 money_cols = [
                     "Ptf. Actions début", "Achats", "Ventes",
                     "Dividendes", "Effet marché", "Ptf. Actions fin"
                 ]
-                disp_attr = attr_with_total.copy()
+                disp_attr = attr_with_total[["FCP"] + money_cols].copy()
                 for col in money_cols:
                     disp_attr[col] = disp_attr[col].map(
                         lambda v: fmt_xof(v, signed=(col == "Effet marché"))
                     )
 
-                render_table(
-                    disp_attr, height=None,
-                    color_cols=["Effet marché"],
-                )
+                # ── Tableau décomposition Effet marché ────────────────────
+                em_cols = ["Effet marché", "Effet marché latent", "Effet marché réalisé"]
+                disp_em = attr_with_total[["FCP"] + em_cols].copy()
+                for col in em_cols:
+                    disp_em[col] = disp_em[col].map(
+                        lambda v: fmt_xof(v, signed=True)
+                    )
+
+                # Display side by side
+                col_main, col_em = st.columns([3, 2])
+                with col_main:
+                    st.caption("Tableau d'attribution complet")
+                    render_table(
+                        disp_attr, height=None,
+                        color_cols=["Effet marché"],
+                    )
+                with col_em:
+                    st.caption(
+                        "Décomposition de l'effet marché  \n"
+                        "**Latent** = qty finale × (cours fin − cours début)  \n"
+                        "**Réalisé** = produit net cessions − coût de revient (CMP)"
+                    )
+                    render_table(
+                        disp_em, height=None,
+                        color_cols=em_cols,
+                    )
 
                 # Export buttons
                 col_xl, col_pdf_attr = st.columns(2)
@@ -1096,6 +1118,7 @@ elif page == "📊 Récap variations":
                         ws.title = "Attribution"
 
                         # Header
+                        # Export full table including latent/realised
                         headers = list(attr_with_total.columns)
                         header_fill = PatternFill(
                             "solid", fgColor="004977"

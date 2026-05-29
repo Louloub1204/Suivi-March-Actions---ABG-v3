@@ -1018,14 +1018,49 @@ def compute_attribution(
         # ⟹ Effet_marché = Ptf_final − Ptf_initial − Achats + Ventes − Dividendes
         effet_marche = ptf_final - ptf_initial - achats + ventes - dividendes
 
+        # ── Effet marché latent ───────────────────────────────────────────
+        # Variation de cours sur les positions CONSERVÉES entre d0 et d1.
+        # Pour chaque titre encore détenu à d1, on mesure la variation
+        # (cours_fin − cours_début_période) × qty_finale.
+        # Reflète la performance de marché pure sur la fenêtre, indépendamment
+        # du prix d'acquisition historique (CMP).
+        effet_latent = 0.0
+        for _, p in pos1.iterrows():
+            qty_f = float(p["quantite"])
+            if qty_f <= 0:
+                continue
+            ticker = p["ticker"]
+            c1_ = get_price_on(cours, ticker, d1) or 0.0
+            c0_ = get_price_on(cours, ticker, d0) or 0.0
+            effet_latent += qty_f * (c1_ - c0_)
+
+        # ── Effet marché réalisé ──────────────────────────────────────────
+        # Plus-value nette sur les cessions : produit net − coût de revient.
+        # Produit net = qty × prix_vente − frais  (déjà dans `ventes`)
+        # Coût de revient = qty × CMP_at_tx  (stocké dans cost_out de la DB)
+        # ⟹ Réalisé = (qty × prix_vente − frais) − (qty × CMP)
+        #            = ventes_nettes − Σ cost_out
+        effet_realise = 0.0
+        if not transactions.empty and not period_tx.empty:
+            ventes_tx_r = period_tx.loc[period_tx["sens"] == "VENTE"]
+            if not ventes_tx_r.empty:
+                produit_net = float(
+                    (ventes_tx_r["quantite"] * ventes_tx_r["prix"]
+                     - ventes_tx_r["frais"]).clip(lower=0).sum()
+                )
+                cout_revient = float(ventes_tx_r["cost_out"].sum())
+                effet_realise = produit_net - cout_revient
+
         rows.append({
-            "FCP":                 fcp,
-            "Ptf. Actions début":  ptf_initial,
-            "Achats":              achats,
-            "Ventes":              ventes,
-            "Dividendes":          dividendes,
-            "Effet marché":        effet_marche,
-            "Ptf. Actions fin":    ptf_final,
+            "FCP":                    fcp,
+            "Ptf. Actions début":     ptf_initial,
+            "Achats":                 achats,
+            "Ventes":                 ventes,
+            "Dividendes":             dividendes,
+            "Effet marché":           effet_marche,
+            "Effet marché latent":    effet_latent,
+            "Effet marché réalisé":   effet_realise,
+            "Ptf. Actions fin":       ptf_final,
         })
 
     df_out = pd.DataFrame(rows)
