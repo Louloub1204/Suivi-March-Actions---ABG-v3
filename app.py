@@ -526,6 +526,93 @@ def render_table(
     )
 
 
+
+def _to_xlsx(df: pd.DataFrame, sheet_name: str = "Données") -> bytes:
+    """Convert a DataFrame to a styled .xlsx file and return bytes.
+
+    Uses openpyxl with CGF GESTION blue/white styling.
+    """
+    import io as _io
+    import openpyxl
+    from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+
+    BLUE_FILL  = PatternFill("solid", fgColor="004977")
+    TOTAL_FILL = PatternFill("solid", fgColor="E6EFF5")
+    THIN = Side(style="thin", color="C2D8E8")
+    BORDER = Border(bottom=THIN)
+
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = sheet_name[:31]  # Excel max 31 chars
+
+    # Header row
+    for col_i, col_name in enumerate(df.columns, 1):
+        cell = ws.cell(row=1, column=col_i, value=str(col_name))
+        cell.font      = Font(bold=True, color="FFFFFF", size=10)
+        cell.fill      = BLUE_FILL
+        cell.alignment = Alignment(horizontal="center", vertical="center")
+        cell.border    = Border(bottom=Side(style="medium", color="FFFFFF"))
+
+    # Data rows
+    for row_i, (_, row) in enumerate(df.iterrows(), 2):
+        is_total = str(row.iloc[0]).upper() in ("TOTAL", "TOTAL GÉNÉRAL")
+        fill = TOTAL_FILL if is_total else None
+        for col_i, val in enumerate(row, 1):
+            # Try to store as number for numeric-looking strings
+            stored_val = val
+            if isinstance(val, str):
+                clean = val.replace(" ", "").replace("FCFA","").replace("%","").replace("+","").replace("▲","").replace("▼","").strip()
+                try:
+                    stored_val = float(clean) if "." in clean else int(clean)
+                except (ValueError, AttributeError):
+                    stored_val = val
+            cell = ws.cell(row=row_i, column=col_i, value=stored_val)
+            cell.border = BORDER
+            if is_total:
+                cell.fill = TOTAL_FILL
+                cell.font = Font(bold=True, size=10)
+            elif row_i % 2 == 0:
+                cell.fill = PatternFill("solid", fgColor="F5F7FA")
+            # Right-align numeric cells
+            if isinstance(stored_val, (int, float)):
+                cell.alignment = Alignment(horizontal="right")
+                if isinstance(stored_val, float) and not stored_val.is_integer():
+                    cell.number_format = '#,##0.00'
+                else:
+                    cell.number_format = '#,##0'
+
+    # Auto column widths
+    for col in ws.columns:
+        max_len = max(
+            (len(str(cell.value or "")) for cell in col), default=8
+        )
+        ws.column_dimensions[col[0].column_letter].width = min(max_len + 4, 50)
+
+    ws.row_dimensions[1].height = 20
+    ws.freeze_panes = "A2"
+
+    buf = _io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    return buf.read()
+
+
+def _xlsx_btn(label: str, df: pd.DataFrame, filename: str,
+              key: str, sheet_name: str = "Données") -> None:
+    """Render a .xlsx download button."""
+    try:
+        xlsx_bytes = _to_xlsx(df, sheet_name=sheet_name)
+        st.download_button(
+            label=label,
+            data=xlsx_bytes,
+            file_name=filename if filename.endswith(".xlsx") else filename.replace(".csv", ".xlsx"),
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            key=key,
+        )
+    except Exception as e:
+        st.error(f"Export Excel impossible : {e}")
+
+
 # ---------------------------------------------------------------------------
 # Sidebar - FCP selection + global controls
 # ---------------------------------------------------------------------------
@@ -688,11 +775,10 @@ if page == "📈 Tableau de bord":
                 color_cols=["+/- value jour", "Variation unitaire"],
             )
 
-        st.download_button(
-            "⬇️ Exporter le tableau (CSV)",
-            data=rows.to_csv(index=False).encode("utf-8"),
-            file_name=f"{fcp.replace(' ', '_')}_{as_of_ts.date()}.csv",
-            mime="text/csv",
+        _xlsx_btn(
+            "📊 Exporter le tableau (.xlsx)", rows,
+            f"{fcp.replace(' ', '_')}_{as_of_ts.date()}.xlsx",
+            key="dl_dashboard", sheet_name="Positions",
         )
 
 
@@ -748,11 +834,10 @@ elif page == "📊 Récap variations":
 
             col_csv, col_pdf = st.columns([1, 1])
             with col_csv:
-                st.download_button(
-                    "⬇️ Exporter le récap (CSV)",
-                    data=recap.to_csv(index=False).encode("utf-8"),
-                    file_name=f"recap_variations_{as_of_ts.date()}.csv",
-                    mime="text/csv",
+                _xlsx_btn(
+                    "📊 Exporter le récap (.xlsx)", recap,
+                    f"recap_variations_{as_of_ts.date()}.xlsx",
+                    key="dl_recap", sheet_name="Récap variations",
                 )
             with col_pdf:
                 if st.button("📄 Générer le rapport PDF", type="primary",
@@ -942,16 +1027,10 @@ elif page == "📊 Récap variations":
                     top_n["Var. nette %"] = top_n["Var. nette %"].map(lambda v: fmt_pct(v, signed=True))
                     render_table(top_n, height=None, color_cols=["Var. nette","Var. nette %"])
 
-                st.download_button(
-                    "⬇️ Exporter (CSV)",
-                    data=period_result.to_csv(index=False).encode("utf-8"),
-                    file_name=(
-                        f"perf_periode_"
-                        f"{pd.Timestamp(period_start).strftime('%Y%m%d')}_"
-                        f"{pd.Timestamp(period_end).strftime('%Y%m%d')}.csv"
-                    ),
-                    mime="text/csv",
-                    key="dl_period",
+                _xlsx_btn(
+                    "📊 Exporter la performance (.xlsx)", period_result,
+                    f"perf_periode_{pd.Timestamp(period_start).strftime('%Y%m%d')}_{pd.Timestamp(period_end).strftime('%Y%m%d')}.xlsx",
+                    key="dl_period", sheet_name="Performance période",
                 )
 
         # ── Tableau d'attribution de performance ─────────────────────────
@@ -1200,10 +1279,10 @@ elif page == "🎯 Expositions":
             render_table(display_global, height=None)
 
             st.download_button(
-                "⬇️ Exporter (CSV)",
-                data=global_by_ticker.to_csv(index=False).encode("utf-8"),
-                file_name=f"expositions_globales_{as_of_ts.date()}.csv",
-                mime="text/csv",
+                "📊 Exporter (.xlsx)",
+                data=_to_xlsx(global_by_ticker, sheet_name="Top expositions"),
+                file_name=f"expositions_globales_{as_of_ts.date()}.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                 key="dl_global",
             )
 
@@ -1302,10 +1381,10 @@ elif page == "🎯 Expositions":
             render_table(formatted, height=None)
 
             st.download_button(
-                "⬇️ Exporter la matrice sectorielle (CSV)",
-                data=export_sec_df.to_csv().encode("utf-8"),
-                file_name=f"matrice_secteurs_{as_of_ts.date()}.csv",
-                mime="text/csv",
+                "📊 Exporter la matrice sectorielle (.xlsx)",
+                data=_to_xlsx(export_sec_df.reset_index(), sheet_name="Secteurs"),
+                file_name=f"matrice_secteurs_{as_of_ts.date()}.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                 key="dl_sec_matrix",
             )
 
@@ -1339,12 +1418,10 @@ elif page == "🎯 Expositions":
                 single["Poids"] = single["Poids"].map(fmt_pct)
                 render_table(single, height=500)
                 export_df = global_by_ticker
-            st.download_button(
-                "⬇️ Exporter (CSV)",
-                data=export_df.to_csv(index=False).encode("utf-8"),
-                file_name=f"positions_{filtre_fcp.replace(' ','_')}_{as_of_ts.date()}.csv",
-                mime="text/csv",
-                key="dl_matrix",
+            _xlsx_btn(
+                "📊 Exporter (.xlsx)", export_df,
+                f"positions_{filtre_fcp.replace(' ','_')}_{as_of_ts.date()}.xlsx",
+                key="dl_matrix", sheet_name="Expositions",
             )
 
         else:
@@ -1405,10 +1482,10 @@ elif page == "🎯 Expositions":
                 export_df = matrix_pct
 
             st.download_button(
-                "⬇️ Exporter la matrice (CSV)",
-                data=export_df.to_csv().encode("utf-8"),
-                file_name=f"matrice_expositions_{as_of_ts.date()}.csv",
-                mime="text/csv",
+                "📊 Exporter la matrice (.xlsx)",
+                data=_to_xlsx(export_df.reset_index(), sheet_name="Matrice expositions"),
+                file_name=f"matrice_expositions_{as_of_ts.date()}.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                 key="dl_matrix",
             )
 
@@ -1434,10 +1511,10 @@ elif page == "🎯 Expositions":
             render_table(display_conc, height=None)
 
             st.download_button(
-                "⬇️ Exporter (CSV)",
-                data=conc.to_csv(index=False).encode("utf-8"),
-                file_name=f"concentration_{as_of_ts.date()}.csv",
-                mime="text/csv",
+                "📊 Exporter (.xlsx)",
+                data=_to_xlsx(conc, sheet_name="Concentration"),
+                file_name=f"concentration_{as_of_ts.date()}.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                 key="dl_conc",
             )
 
@@ -1561,10 +1638,10 @@ elif page == "🎯 Expositions":
 
             # Export
             st.download_button(
-                "⬇️ Exporter la matrice (CSV)",
-                data=matrix.to_csv(index=False).encode("utf-8"),
-                file_name=f"dividendes_matrice_{div_year}.csv",
-                mime="text/csv",
+                "📊 Exporter la matrice dividendes (.xlsx)",
+                data=_to_xlsx(disp_matrix, sheet_name=f"Dividendes {div_year}"),
+                file_name=f"dividendes_matrice_{div_year}.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                 key="dl_dividendes",
             )
 
@@ -1702,10 +1779,10 @@ elif page == "🎯 Expositions":
             render_table(disp_fut, height=400)
 
             st.download_button(
-                "⬇️ Exporter les dividendes à percevoir (CSV)",
-                data=fut_df.to_csv(index=False).encode("utf-8"),
-                file_name=f"dividendes_a_percevoir_{as_of_ts.date()}.csv",
-                mime="text/csv",
+                "📊 Exporter les dividendes à percevoir (.xlsx)",
+                data=_to_xlsx(disp_fut, sheet_name="Dividendes à percevoir"),
+                file_name=f"dividendes_a_percevoir_{as_of_ts.date()}.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                 key="dl_dividendes_fut",
             )
 
@@ -2089,21 +2166,17 @@ elif page == "📋 Suivi des cibles":
             # ── Exports ────────────────────────────────────────────────────
             col_e1, col_e2 = st.columns(2)
             with col_e1:
-                st.download_button(
-                    "⬇️ Exporter la vue nettée (CSV)",
-                    data=agg.to_csv(index=False).encode("utf-8"),
-                    file_name=f"suivi_cibles_net_{as_of_ts.date()}.csv",
-                    mime="text/csv",
-                    key="dl_tracking_global",
+                _xlsx_btn(
+                    "📊 Exporter la vue nettée (.xlsx)", display_g,
+                    f"suivi_cibles_net_{as_of_ts.date()}.xlsx",
+                    key="dl_tracking_global", sheet_name="Cibles global",
                 )
             with col_e2:
                 if inter_tickers:
-                    st.download_button(
-                        "⬇️ Exporter les transactions inter-FCP (CSV)",
-                        data=inter_df.to_csv(index=False).encode("utf-8"),
-                        file_name=f"inter_fcp_{as_of_ts.date()}.csv",
-                        mime="text/csv",
-                        key="dl_inter_fcp",
+                    _xlsx_btn(
+                        "📊 Exporter inter-FCP (.xlsx)", inter_df,
+                        f"inter_fcp_{as_of_ts.date()}.xlsx",
+                        key="dl_inter_fcp", sheet_name="Inter-FCP",
                     )
 
     # ── Vue par FCP ──────────────────────────────────────────────────────────
@@ -2182,15 +2255,10 @@ elif page == "📋 Suivi des cibles":
                     "poids_actuel","cible_pct","cible_fcfa",
                     "ecart_fcfa","ecart_pct","quantite_ecart","sens",
                 ]
-                st.download_button(
-                    "⬇️ Exporter le suivi (CSV)",
-                    data=tracking[export_cols].to_csv(index=False).encode("utf-8"),
-                    file_name=(
-                        f"suivi_cibles_{fcp_scope.replace(' ','_')}"
-                        f"_{as_of_ts.date()}.csv"
-                    ),
-                    mime="text/csv",
-                    key="dl_tracking",
+                _xlsx_btn(
+                    "📊 Exporter le suivi (.xlsx)", display,
+                    f"suivi_cibles_{fcp_scope.replace(' ','_')}_{as_of_ts.date()}.xlsx",
+                    key="dl_tracking", sheet_name=f"Cibles {fcp_scope[:20]}",
                 )
 
                 with st.expander(f"📋 Cibles enregistrées — {fcp_scope}"):
@@ -2343,12 +2411,12 @@ elif page == "💼 Transactions":
     else:
         col_l, col_r = st.columns([3, 1])
         col_l.metric("Total transactions", f"{len(tx)}")
-        col_r.download_button(
-            "⬇️ Exporter (CSV)",
-            data=tx.to_csv(index=False).encode("utf-8"),
-            file_name=f"transactions_{fcp.replace(' ', '_')}.csv",
-            mime="text/csv",
-        )
+        with col_r:
+            _xlsx_btn(
+                "📊 Exporter (.xlsx)", tx,
+                f"transactions_{fcp.replace(' ', '_')}.xlsx",
+                key="dl_tx", sheet_name="Transactions",
+            )
 
         tx_display = tx[["id","date","fcp","ticker","sens",
                           "quantite","prix","valeur","frais",
