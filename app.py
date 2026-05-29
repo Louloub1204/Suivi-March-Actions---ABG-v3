@@ -1521,7 +1521,10 @@ elif page == "🎯 Expositions":
     # ── Section 4: Dividendes perçus par titre et par FCP ──────────────────
     st.divider()
     st.subheader("💰 Dividendes perçus")
-    st.caption("Montant total reçu par titre et par FCP selon l'année choisie.")
+    st.caption(
+        f"Dividendes dont la date de paiement est **≤ {as_of_ts.strftime('%d/%m/%Y')}** "
+        "(date de valorisation). Filtrés par année."
+    )
 
     current_year = as_of_ts.year
     div_year = st.selectbox(
@@ -1532,14 +1535,18 @@ elif page == "🎯 Expositions":
     )
 
     all_divs_dated = _cached_dividends_dated()
-    # Filter dividends for selected year
+    # Only dividends paid in the selected year AND on or before as_of_ts
     year_divs = [
         d for d in all_divs_dated
         if pd.Timestamp(d["payment_date"]).year == div_year
+        and pd.Timestamp(d["payment_date"]).normalize() <= as_of_ts.normalize()
     ]
 
     if not year_divs:
-        st.info(f"Aucun dividende enregistré pour l'année {div_year}.")
+        st.info(
+            f"Aucun dividende perçu pour l'année {div_year} "
+            f"jusqu'au {as_of_ts.strftime('%d/%m/%Y')}."
+        )
     else:
         # Build recap: for each dividend, compute amount per FCP
         from portfolio import compute_positions as _cp
