@@ -683,6 +683,56 @@ if page == "📈 Tableau de bord":
             f"Comparaison avec **{prev_date.strftime('%d/%m/%Y')}**"
         )
 
+    # ── Bannière dividendes du jour ──────────────────────────────────────────
+    if dated_divs:
+        # Scrolling ticker
+        ticker_items = "          🔸          ".join(
+            f"💰 {ticker}  —  {amount:,.0f} FCFA / action".replace(",", "\u202f")
+            for ticker, amount in sorted(dated_divs.items())
+        )
+        # Duplicate for seamless loop
+        ticker_content = f"{ticker_items}          🔸          {ticker_items}"
+        scroll_html = f"""
+<div style="
+    overflow: hidden;
+    white-space: nowrap;
+    background: linear-gradient(90deg, #004977 0%, #006aa3 50%, #004977 100%);
+    border-radius: 6px;
+    padding: 8px 0;
+    margin-bottom: 10px;
+    border: 1px solid #003a5c;
+">
+  <span style="
+    display: inline-block;
+    animation: scroll-ticker 25s linear infinite;
+    font-size: 0.88rem;
+    font-weight: 600;
+    color: #FFFFFF;
+    letter-spacing: 0.03em;
+  ">
+    {ticker_content}
+  </span>
+</div>
+<style>
+@keyframes scroll-ticker {{
+  0%   {{ transform: translateX(0%); }}
+  100% {{ transform: translateX(-50%); }}
+}}
+</style>
+"""
+        st.markdown(scroll_html, unsafe_allow_html=True)
+
+        # Static info banner below
+        ticker_pills = "  ·  ".join(
+            f"💰 **{ticker}** {amount:,.0f} FCFA/action".replace(",", "\u202f")
+            for ticker, amount in sorted(dated_divs.items())
+        )
+        st.info(
+            f"📅 Dividendes payés ce jour ({as_of_ts.strftime('%d/%m/%Y')}) : "
+            f"{ticker_pills}",
+            icon=None,
+        )
+
     c1, c2, c3, c4 = st.columns(4)
     c1.metric("Coût total", fmt_xof(totals["cout_total"]))
     c2.metric("Valorisation", fmt_xof(totals["valorisation"]))
