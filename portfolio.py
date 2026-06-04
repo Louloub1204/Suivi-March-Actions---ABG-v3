@@ -1069,3 +1069,271 @@ def compute_attribution(
             "Ptf. Actions fin", ascending=False
         ).reset_index(drop=True)
     return df_out
+
+
+# ---------------------------------------------------------------------------
+# Active management analysis
+# ---------------------------------------------------------------------------
+
+def compute_active_management(
+    transactions: pd.DataFrame,
+    cours: pd.DataFrame,
+    fcps: list[str],
+    date_debut: pd.Timestamp,
+    date_fin: pd.Timestamp,
+    dividends_dated: list[dict] | None = None,
+) -> pd.DataFrame:
+    """Compute active management metrics for each FCP over [date_debut, date_fin].
+
+    Metrics per FCP:
+      alpha            : FCP return - BRVM index return (same period)
+      turnover         : (achats + ventes) / (2 * valo_moyenne)
+      frais_pct        : total frais / valo_moyenne
+      hit_ratio        : % of buy transactions where cours_fin > prix_achat
+      timing_score     : avg (prix_vente - cours_debut) for sells (>0 = good timing)
+      stock_picking    : contribution from held stocks vs BRVM
+      n_achats         : number of buy transactions in period
+      n_ventes         : number of sell transactions in period
+      rendement_fcp    : (valo_fin - valo_debut - flux_nets) / valo_debut
+      rendement_brvm   : BRVM index return over the same period
+    """
+    dividends_dated = dividends_dated or []
+    d0 = pd.Timestamp(date_debut)
+    d1 = pd.Timestamp(date_fin)
+    BENCHMARK = ".BRVMCI"
+
+    # BRVM index return
+    brvm_start = get_price_on(cours, BENCHMARK, d0) or 0.0
+    brvm_end   = get_price_on(cours, BENCHMARK, d1) or 0.0
+    rendement_brvm = (brvm_end - brvm_start) / brvm_start if brvm_start else 0.0
+
+    rows: list[dict] = []
+
+    for fcp in fcps:
+
+        # Positions and valuations
+        pos0 = compute_positions(transactions, fcp, d0)
+        pos1 = compute_positions(transactions, fcp, d1)
+
+        valo_debut = 0.0
+        for _, p in pos0.iterrows():
+            if float(p["quantite"]) <= 0:
+                continue
+            valo_debut += float(p["quantite"]) * (get_price_on(cours, p["ticker"], d0) or 0.0)
+
+        valo_fin = 0.0
+        for _, p in pos1.iterrows():
+            if float(p["quantite"]) <= 0:
+                continue
+            valo_fin += float(p["quantite"]) * (get_price_on(cours, p["ticker"], d1) or 0.0)
+
+        valo_moy = (valo_debut + valo_fin) / 2 if (valo_debut + valo_fin) > 0 else 1.0
+
+        # Period transactions
+        if not transactions.empty:
+            df_tx = transactions.copy()
+            df_tx["date"] = pd.to_datetime(df_tx["date"])
+            mask = (
+                (df_tx["fcp"] == fcp)
+                & (df_tx["date"] > d0)
+                & (df_tx["date"] <= d1)
+            )
+            period_tx = df_tx.loc[mask].copy()
+        else:
+            period_tx = transactions.iloc[0:0].copy()
+
+        achats_tx = period_tx[period_tx["sens"] == "ACHAT"]
+        ventes_tx  = period_tx[period_tx["sens"] == "VENTE"]
+
+        achats_amt = float(achats_tx["cost_in"].sum())
+        ventes_amt = float(
+            (ventes_tx["quantite"] * ventes_tx["prix"] - ventes_tx["frais"])
+            .clip(lower=0).sum()
+        ) if not ventes_tx.empty else 0.0
+
+        frais_total = float(period_tx["frais"].sum())
+        n_achats    = len(achats_tx)
+        n_ventes    = len(ventes_tx)
+        flux_nets   = achats_amt - ventes_amt
+
+        # Turnover & frais friction
+        turnover  = (achats_amt + ventes_amt) / (2 * valo_moy)
+        frais_pct = frais_total / valo_moy if valo_moy else 0.0
+
+        # FCP return (net of flows)
+        rendement_fcp = (valo_fin - valo_debut - flux_nets) / valo_debut                         if valo_debut else 0.0
+        alpha = rendement_fcp - rendement_brvm
+
+        # Hit ratio: buy transactions where cours_fin > prix_achat
+        hits = 0
+        for _, t in achats_tx.iterrows():
+            c_fin = get_price_on(cours, t["ticker"], d1) or 0.0
+            if c_fin > float(t["prix"]):
+                hits += 1
+        hit_ratio = hits / n_achats if n_achats else None
+
+        # Timing score for sells: avg(prix_vente - cours_debut_periode)
+        # Positive = sold above the starting price = captured gains
+        timing_scores = []
+        for _, t in ventes_tx.iterrows():
+            c_deb = get_price_on(cours, t["ticker"], d0) or float(t["prix"])
+            timing_scores.append(float(t["prix"]) - c_deb)
+        timing_score = sum(timing_scores) / len(timing_scores) if timing_scores else None
+
+        # Stock picking: contribution of each held title vs BRVM
+        # = Σ w_i × (r_i - r_BRVM) where w_i = weight in portfolio at d0
+        stock_picking = 0.0
+        if valo_debut > 0 and brvm_start > 0:
+            for _, p in pos0.iterrows():
+                qty = float(p["quantite"])
+                if qty <= 0:
+                    continue
+                c0 = get_price_on(cours, p["ticker"], d0) or 0.0
+                c1_ = get_price_on(cours, p["ticker"], d1) or 0.0
+                if c0 <= 0:
+                    continue
+                r_i = (c1_ - c0) / c0
+                w_i = (qty * c0) / valo_debut
+                stock_picking += w_i * (r_i - rendement_brvm)
+
+        rows.append({
+            "FCP":              fcp,
+            "Valo début":       valo_debut,
+            "Valo fin":         valo_fin,
+            "Rendement FCP":    rendement_fcp,
+            "Rendement BRVM":   rendement_brvm,
+            "Alpha":            alpha,
+            "Stock picking":    stock_picking,
+            "Turnover":         turnover,
+            "Frais (% valo)":   frais_pct,
+            "Hit ratio":        hit_ratio,
+            "Timing score":     timing_score,
+            "Nb achats":        n_achats,
+            "Nb ventes":        n_ventes,
+            "Frais total":      frais_total,
+        })
+
+    df_out = pd.DataFrame(rows)
+    if not df_out.empty:
+        df_out = df_out.sort_values("Alpha", ascending=False).reset_index(drop=True)
+    return df_out
+
+
+def compute_stock_picking_detail(
+    transactions: pd.DataFrame,
+    cours: pd.DataFrame,
+    fcp: str,
+    date_debut: pd.Timestamp,
+    date_fin: pd.Timestamp,
+) -> pd.DataFrame:
+    """Per-ticker stock picking contribution for one FCP.
+
+    Returns one row per ticker held at date_debut with:
+      ticker, poids_debut, rendement_titre, rendement_brvm,
+      alpha_titre, contribution (poids × alpha_titre)
+    """
+    d0 = pd.Timestamp(date_debut)
+    d1 = pd.Timestamp(date_fin)
+    BENCHMARK = ".BRVMCI"
+
+    brvm_start = get_price_on(cours, BENCHMARK, d0) or 0.0
+    brvm_end   = get_price_on(cours, BENCHMARK, d1) or 0.0
+    rendement_brvm = (brvm_end - brvm_start) / brvm_start if brvm_start else 0.0
+
+    pos0 = compute_positions(transactions, fcp, d0)
+    valo_debut = sum(
+        float(p["quantite"]) * (get_price_on(cours, p["ticker"], d0) or 0.0)
+        for _, p in pos0.iterrows() if float(p["quantite"]) > 0
+    )
+
+    rows = []
+    for _, p in pos0.iterrows():
+        qty = float(p["quantite"])
+        if qty <= 0:
+            continue
+        ticker = p["ticker"]
+        c0 = get_price_on(cours, ticker, d0) or 0.0
+        c1_ = get_price_on(cours, ticker, d1) or 0.0
+        if c0 <= 0:
+            continue
+        r_i  = (c1_ - c0) / c0
+        w_i  = (qty * c0) / valo_debut if valo_debut else 0.0
+        alpha_i = r_i - rendement_brvm
+        rows.append({
+            "Ticker":            ticker,
+            "Cours début":       c0,
+            "Cours fin":         c1_,
+            "Rendement titre":   r_i,
+            "Rendement BRVM":    rendement_brvm,
+            "Alpha titre":       alpha_i,
+            "Poids début":       w_i,
+            "Contribution":      w_i * alpha_i,
+            "Qty":               qty,
+        })
+
+    df = pd.DataFrame(rows)
+    if not df.empty:
+        df = df.sort_values("Contribution", ascending=False).reset_index(drop=True)
+    return df
+
+
+def compute_transaction_analysis(
+    transactions: pd.DataFrame,
+    cours: pd.DataFrame,
+    fcp: str,
+    date_debut: pd.Timestamp,
+    date_fin: pd.Timestamp,
+) -> pd.DataFrame:
+    """Per-transaction analysis: timing quality and P&L.
+
+    Returns one row per transaction with:
+      date, ticker, sens, qty, prix_tx, cours_debut, cours_fin,
+      timing_vs_debut, pnl_realise (ventes) or pnl_latent (achats)
+    """
+    d0 = pd.Timestamp(date_debut)
+    d1 = pd.Timestamp(date_fin)
+
+    if transactions.empty:
+        return pd.DataFrame()
+
+    df = transactions.copy()
+    df["date"] = pd.to_datetime(df["date"])
+    mask = (
+        (df["fcp"] == fcp)
+        & (df["date"] > d0)
+        & (df["date"] <= d1)
+    )
+    period_tx = df.loc[mask].copy()
+    if period_tx.empty:
+        return pd.DataFrame()
+
+    rows = []
+    for _, t in period_tx.iterrows():
+        ticker = t["ticker"]
+        prix_tx = float(t["prix"])
+        qty     = float(t["quantite"])
+        frais_t = float(t["frais"])
+        c0 = get_price_on(cours, ticker, d0) or prix_tx
+        c1_ = get_price_on(cours, ticker, d1) or prix_tx
+
+        if t["sens"] == "ACHAT":
+            pnl = qty * (c1_ - prix_tx) - frais_t  # latent P&L
+            timing = prix_tx - c0  # negative = bought cheaper than period start = good
+        else:
+            pnl = qty * (prix_tx - float(t.get("cmp_at_tx", prix_tx))) - frais_t
+            timing = prix_tx - c0  # positive = sold above period start = good
+
+        rows.append({
+            "Date":          t["date"].strftime("%d/%m/%Y"),
+            "Ticker":        ticker,
+            "Sens":          t["sens"],
+            "Qté":           int(qty),
+            "Prix tx":       prix_tx,
+            "Cours début":   c0,
+            "Cours fin":     c1_,
+            "Timing":        timing,
+            "P&L":           pnl,
+            "Frais":         frais_t,
+        })
+
+    return pd.DataFrame(rows).sort_values("Date")

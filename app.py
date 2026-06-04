@@ -846,7 +846,11 @@ elif page == "📊 Récap variations":
     recap = _cached_recap_data(as_of_ts.isoformat(), tx_h, pr_h)
     divs_by_fcp = _build_divs_by_fcp(all_fcps, as_of_ts)
 
-    tab_day, tab_period = st.tabs(["📅 Variation du jour / YTD", "📆 Analyse sur période"])
+    tab_day, tab_period, tab_gestion = st.tabs([
+        "📅 Variation du jour / YTD",
+        "📆 Analyse sur période",
+        "🎯 Analyse de gestion active",
+    ])
 
     # ── Tab 1: Day / YTD ─────────────────────────────────────────────────────
     with tab_day:
@@ -1253,10 +1257,175 @@ elif page == "📊 Récap variations":
                                     f"Génération PDF impossible : {e}"
                                 )
 
+    # ── Tab 3: Analyse de gestion active ─────────────────────────────────────
+    with tab_gestion:
+        from portfolio import (
+            compute_active_management,
+            compute_stock_picking_detail,
+            compute_transaction_analysis,
+        )
 
-# ---------------------------------------------------------------------------
-# Page: Expositions
-# ---------------------------------------------------------------------------
+        st.subheader("Analyse de la gestion active")
+        st.caption(
+            "Évaluation de l'efficacité de la gestion sur une période choisie. "
+            "Benchmark : indice **BRVMCI** (`.BRVMCI` dans l'historique des cours)."
+        )
+
+        col_g1, col_g2 = st.columns(2)
+        with col_g1:
+            gestion_start = st.date_input(
+                "Date de début",
+                value=pd.Timestamp(year=as_of_ts.year, month=1, day=1).date(),
+                key="gestion_start",
+            )
+        with col_g2:
+            gestion_end = st.date_input(
+                "Date de fin",
+                value=as_of_ts.date(),
+                key="gestion_end",
+            )
+
+        if gestion_start >= gestion_end:
+            st.warning("La date de début doit être antérieure à la date de fin.")
+        else:
+            d0_g = pd.Timestamp(gestion_start)
+            d1_g = pd.Timestamp(gestion_end)
+            n_days_g = (d1_g - d0_g).days
+
+            with st.spinner("Calcul des métriques de gestion active…"):
+                divs_dated_g = _cached_dividends_dated()
+                mgmt = compute_active_management(
+                    tx_all, prices, all_fcps,
+                    d0_g, d1_g, divs_dated_g,
+                )
+
+            if mgmt.empty:
+                st.info("Aucune donnée.")
+            else:
+                # ── KPIs globaux ──────────────────────────────────────────
+                brvm_ret = float(mgmt["Rendement BRVM"].iloc[0])
+                n_alpha_pos = int((mgmt["Alpha"] > 0).sum())
+                n_alpha_neg = int((mgmt["Alpha"] < 0).sum())
+                avg_alpha   = float(mgmt["Alpha"].mean())
+                avg_turnover= float(mgmt["Turnover"].mean())
+                avg_hit     = mgmt["Hit ratio"].dropna().mean()
+
+                c1, c2, c3, c4, c5 = st.columns(5)
+                c1.metric("BRVM (benchmark)", f"{brvm_ret*100:.2f}%")
+                c2.metric("FCPs > benchmark", f"{n_alpha_pos} / {len(mgmt)}")
+                c3.metric("Alpha moyen", f"{avg_alpha*100:+.2f}%")
+                c4.metric("Turnover moyen", f"{avg_turnover*100:.1f}%")
+                c5.metric("Hit ratio moyen", f"{avg_hit*100:.0f}%" if pd.notna(avg_hit) else "—")
+
+                st.divider()
+
+                # ── Tableau synthèse par FCP ──────────────────────────────
+                st.subheader("Synthèse par FCP")
+
+                def _fmt_ret(v):
+                    if pd.isna(v): return "—"
+                    return f"{v*100:+.2f}%"
+                def _fmt_pct(v):
+                    if pd.isna(v): return "—"
+                    return f"{v*100:.1f}%"
+                def _fmt_xof_signed(v):
+                    if pd.isna(v): return "—"
+                    return fmt_xof(v, signed=True)
+
+                disp_mgmt = pd.DataFrame({
+                    "FCP":              mgmt["FCP"],
+                    "Rendement FCP":    mgmt["Rendement FCP"].map(_fmt_ret),
+                    "Rendement BRVM":   mgmt["Rendement BRVM"].map(_fmt_ret),
+                    "Alpha":            mgmt["Alpha"].map(_fmt_ret),
+                    "Stock picking":    mgmt["Stock picking"].map(_fmt_ret),
+                    "Turnover":         mgmt["Turnover"].map(_fmt_pct),
+                    "Frais (% valo)":   mgmt["Frais (% valo)"].map(_fmt_pct),
+                    "Hit ratio":        mgmt["Hit ratio"].map(
+                        lambda v: f"{v*100:.0f}%" if pd.notna(v) else "—"
+                    ),
+                    "Timing moy.":      mgmt["Timing score"].map(
+                        lambda v: fmt_xof(v, signed=True) if pd.notna(v) else "—"
+                    ),
+                    "Nb achats":        mgmt["Nb achats"].astype(str),
+                    "Nb ventes":        mgmt["Nb ventes"].astype(str),
+                    "Frais total":      mgmt["Frais total"].map(fmt_xof),
+                })
+                render_table(disp_mgmt, height=None,
+                             color_cols=["Alpha", "Stock picking", "Timing moy."])
+
+                _xlsx_btn(
+                    "📊 Exporter la synthèse (.xlsx)", disp_mgmt,
+                    f"gestion_active_{d0_g.strftime('%Y%m%d')}_{d1_g.strftime('%Y%m%d')}.xlsx",
+                    key="dl_gestion", sheet_name="Gestion active",
+                )
+
+                st.divider()
+
+                # ── Drill-down par FCP ────────────────────────────────────
+                st.subheader("Analyse détaillée par FCP")
+                fcp_detail = st.selectbox(
+                    "Sélectionner un FCP",
+                    options=all_fcps,
+                    key="gestion_fcp_detail",
+                )
+
+                col_sp, col_tx = st.columns(2)
+
+                with col_sp:
+                    st.markdown("**Stock picking — contribution par titre**")
+                    st.caption(
+                        "Contribution = Poids × (Rendement titre − Rendement BRVM). "
+                        "Positif = le titre a surperformé l'indice, bénéfique pour le FCP."
+                    )
+                    sp_detail = compute_stock_picking_detail(
+                        tx_all, prices, fcp_detail, d0_g, d1_g
+                    )
+                    if sp_detail.empty:
+                        st.info("Aucune position au début de la période.")
+                    else:
+                        disp_sp = pd.DataFrame({
+                            "Ticker":          sp_detail["Ticker"],
+                            "Poids":           sp_detail["Poids début"].map(
+                                lambda v: f"{v*100:.1f}%"
+                            ),
+                            "Rdt titre":       sp_detail["Rendement titre"].map(_fmt_ret),
+                            "Rdt BRVM":        sp_detail["Rendement BRVM"].map(_fmt_ret),
+                            "Alpha titre":     sp_detail["Alpha titre"].map(_fmt_ret),
+                            "Contribution":    sp_detail["Contribution"].map(_fmt_ret),
+                        })
+                        render_table(disp_sp, height=350,
+                                     color_cols=["Alpha titre", "Contribution"])
+
+                with col_tx:
+                    st.markdown("**Analyse des transactions — timing et P&L**")
+                    st.caption(
+                        "Timing > 0 = transaction dans le bon sens vs cours début période. "
+                        "P&L = gain/perte réalisé(e) ou latent(e) par rapport au cours fin."
+                    )
+                    tx_detail = compute_transaction_analysis(
+                        tx_all, prices, fcp_detail, d0_g, d1_g
+                    )
+                    if tx_detail.empty:
+                        st.info("Aucune transaction sur la période.")
+                    else:
+                        disp_tx = pd.DataFrame({
+                            "Date":         tx_detail["Date"],
+                            "Ticker":       tx_detail["Ticker"],
+                            "Sens":         tx_detail["Sens"],
+                            "Qté":          tx_detail["Qté"].astype(str),
+                            "Prix tx":      tx_detail["Prix tx"].map(fmt_xof),
+                            "Cours déb.":   tx_detail["Cours début"].map(fmt_xof),
+                            "Cours fin":    tx_detail["Cours fin"].map(fmt_xof),
+                            "Timing":       tx_detail["Timing"].map(
+                                lambda v: fmt_xof(v, signed=True)
+                            ),
+                            "P&L":          tx_detail["P&L"].map(
+                                lambda v: fmt_xof(v, signed=True)
+                            ),
+                            "Frais":        tx_detail["Frais"].map(fmt_xof),
+                        })
+                        render_table(disp_tx, height=350,
+                                     color_cols=["Timing", "P&L"])
 elif page == "🎯 Expositions":
     st.header("Expositions cross-portefeuille")
     as_of_ts = pd.Timestamp(as_of)
