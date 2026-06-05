@@ -305,11 +305,14 @@ _bootstrap()
 
 
 # ---------------------------------------------------------------------------
-# Daily auto-sync — runs once per calendar day on first app open
+# Daily auto-sync — runs once per session (not per rerun)
 # ---------------------------------------------------------------------------
-# This runs BEFORE the cache layer is queried, so any data refreshed here
-# is visible immediately in the rest of the app.
-_did_sync = run_daily_auto_sync_if_needed()
+@st.cache_resource
+def _run_auto_sync_once():
+    """Run at most once per Streamlit server process (survives reruns)."""
+    return run_daily_auto_sync_if_needed()
+
+_did_sync = _run_auto_sync_once()
 
 
 # ---------------------------------------------------------------------------
@@ -389,7 +392,7 @@ def _cached_recap_data(as_of_str: str, tx_hash: int, prices_hash: int) -> "pd.Da
     tx = _cached_transactions()
     prices = _cached_prices()
     all_fcps = _cached_fcps()
-    divs = _build_divs_by_fcp(all_fcps, pd.Timestamp(as_of_str))
+    divs = _build_divs_by_fcp(tuple(all_fcps), as_of_str)
     return _cr(tx, prices, all_fcps, pd.Timestamp(as_of_str), divs)
 
 
@@ -410,6 +413,7 @@ def _clear_data_cache() -> None:
     _cached_known_tickers.clear()
     _cached_recap_data.clear()
     _cached_exposures_data.clear()
+    _build_divs_by_fcp.clear()
 
 
 def _do_brvm_refresh() -> tuple[int, str, object]:
@@ -442,29 +446,25 @@ def _brvm_refresh_btn(key: str) -> None:
                 st.error(f"Échec : {e}")
 
 
+@st.cache_data(ttl=600, show_spinner=False)
 def _build_divs_by_fcp(
-    fcps_list: list[str],
-    as_of: "pd.Timestamp",
+    fcps_list: tuple,
+    as_of_str: str,
 ) -> dict[str, dict[str, float]]:
     """Build {fcp: {ticker: amount}} merging legacy + dated dividends.
 
-    Legacy dividends (no date) apply every day.
-    Dated dividends apply ONLY on their payment_date.
-    Dated values override legacy values for the same ticker on that date.
+    Cached — key = (fcps_tuple, as_of_str). Invalidated by _clear_data_cache().
+    Legacy dividends apply every day; dated dividends only on payment_date.
     """
-    # Legacy: {fcp: {ticker: amount}}
-    legacy = _cached_dividends_all(tuple(fcps_list))
-    # Dated: {ticker: amount} for as_of date only
-    dated = resolve_dividends_for_date(_cached_dividends_dated(), as_of)
-
+    legacy = _cached_dividends_all(fcps_list)
+    dated  = resolve_dividends_for_date(_cached_dividends_dated(),
+                                        pd.Timestamp(as_of_str))
     if not dated:
         return legacy
-
-    # Merge: start from legacy, add/override with dated for each FCP
     merged: dict[str, dict[str, float]] = {}
     for fcp_name in fcps_list:
         base = dict(legacy.get(fcp_name, {}))
-        base.update(dated)  # dated dividends apply to all FCPs
+        base.update(dated)
         merged[fcp_name] = base
     return merged
 
@@ -884,7 +884,7 @@ elif page == "📊 Récap variations":
     all_fcps = _all_fcps_global
     tx_h, pr_h = len(tx_all), len(prices)
     recap = _cached_recap_data(as_of_ts.isoformat(), tx_h, pr_h)
-    divs_by_fcp = _build_divs_by_fcp(all_fcps, as_of_ts)
+    divs_by_fcp = _build_divs_by_fcp(tuple(all_fcps), as_of_ts.isoformat())
 
     tab_day, tab_period, tab_gestion = st.tabs([
         "📅 Variation du jour / YTD",
@@ -1474,7 +1474,7 @@ elif page == "🎯 Expositions":
     tx_all = _tx_all_global
     prices = _prices_global
     all_fcps = _all_fcps_global
-    divs_by_fcp = _build_divs_by_fcp(all_fcps, as_of_ts)
+    divs_by_fcp = _build_divs_by_fcp(tuple(all_fcps), as_of_ts.isoformat())
     filtre_options = ["Tous les FCPs"] + all_fcps
     filtre_fcp = st.selectbox(
         "Périmètre d'analyse",
@@ -2094,7 +2094,7 @@ elif page == "📋 Suivi des cibles":
 
     tx_all = _cached_transactions()
     prices = _cached_prices()
-    divs = _build_divs_by_fcp(list(fcps), as_of_ts).get(fcp, {})
+    divs = _build_divs_by_fcp(tuple(fcps), as_of_ts.isoformat()).get(fcp, {})
 
     # ── Import de cibles ────────────────────────────────────────────────────
     with st.expander("📥 Importer les cibles (CSV ou Excel)", expanded=False):
@@ -2290,7 +2290,7 @@ elif page == "📋 Suivi des cibles":
             targets_df_f = db.get_targets(fcp_name)
             if targets_df_f.empty:
                 continue
-            divs_f = _build_divs_by_fcp(fcps, as_of_ts).get(fcp_name, {})
+            divs_f = _build_divs_by_fcp(tuple(fcps), as_of_ts.isoformat()).get(fcp_name, {})
             t = compute_tracking(
                 tx_all, prices, targets_df_f, fcp_name, as_of_ts, divs_f
             )
@@ -2477,7 +2477,7 @@ elif page == "📋 Suivi des cibles":
     else:
         fcp_scope = scope
         targets_df = db.get_targets(fcp_scope)
-        divs_scope = _build_divs_by_fcp(fcps, as_of_ts).get(fcp_scope, {})
+        divs_scope = _build_divs_by_fcp(tuple(fcps), as_of_ts.isoformat()).get(fcp_scope, {})
 
         if targets_df.empty:
             st.info(
