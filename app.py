@@ -412,6 +412,36 @@ def _clear_data_cache() -> None:
     _cached_exposures_data.clear()
 
 
+def _do_brvm_refresh() -> tuple[int, str, object]:
+    """Fetch BRVM quotes, upsert prices, clear cache. Returns (n_quotes, source, session_date)."""
+    from scraper import fetch_with_session_date
+    quotes_df, sess = fetch_with_session_date(timeout=25)
+    for _, row in quotes_df.iterrows():
+        db.upsert_quote_today(row.to_dict())
+    close_rows = quotes_df[["ticker", "close"]].dropna().copy()
+    close_rows["date"] = sess.isoformat()
+    close_rows = close_rows.rename(columns={"close": "price"})[["date", "ticker", "price"]]
+    db.upsert_prices(close_rows, source="brvm")
+    _clear_data_cache()
+    src = quotes_df.get("source_url", pd.Series(["?"])).iloc[0] if len(quotes_df) else "?"
+    return len(quotes_df), str(src), sess
+
+
+def _brvm_refresh_btn(key: str) -> None:
+    """Render a compact BRVM refresh button. Call anywhere in the app."""
+    if st.button("🔄 Cours BRVM", key=key, help="Rafraîchir les cours BRVM maintenant"):
+        with st.spinner("Récupération des cours…"):
+            try:
+                n_q, src, sess = _do_brvm_refresh()
+                st.toast(
+                    f"✅ {n_q} cours mis à jour — séance du {sess.strftime('%d/%m/%Y')}",
+                    icon="📈",
+                )
+                st.rerun()
+            except Exception as e:
+                st.error(f"Échec : {e}")
+
+
 def _build_divs_by_fcp(
     fcps_list: list[str],
     as_of: "pd.Timestamp",
@@ -657,7 +687,12 @@ _all_fcps_global = _cached_fcps()
 # Page: Dashboard
 # ---------------------------------------------------------------------------
 if page == "📈 Tableau de bord":
-    st.header(f"{fcp}")
+    col_hdr, col_refresh_db = st.columns([5, 1])
+    with col_hdr:
+        st.header(f"{fcp}")
+    with col_refresh_db:
+        st.write("")
+        _brvm_refresh_btn("brvm_refresh_dashboard")
     as_of_ts = pd.Timestamp(as_of)
 
     tx_all = _tx_all_global
@@ -836,7 +871,12 @@ if page == "📈 Tableau de bord":
 # Page: Récap variations
 # ---------------------------------------------------------------------------
 elif page == "📊 Récap variations":
-    st.header("Récap variations — tous les FCPs")
+    col_hdr_r, col_refresh_r = st.columns([5, 1])
+    with col_hdr_r:
+        st.header("Récap variations — tous les FCPs")
+    with col_refresh_r:
+        st.write("")
+        _brvm_refresh_btn("brvm_refresh_recap")
     as_of_ts = pd.Timestamp(as_of)
 
     tx_all = _tx_all_global
@@ -2040,7 +2080,12 @@ elif page == "🎯 Expositions":
 # Page: Suivi des cibles
 # ---------------------------------------------------------------------------
 elif page == "📋 Suivi des cibles":
-    st.header(f"Suivi des cibles — {fcp}")
+    col_hdr_c, col_refresh_c = st.columns([5, 1])
+    with col_hdr_c:
+        st.header(f"Suivi des cibles — {fcp}")
+    with col_refresh_c:
+        st.write("")
+        _brvm_refresh_btn("brvm_refresh_cibles")
     as_of_ts = pd.Timestamp(as_of)
     st.caption(
         f"Comparaison positions actuelles vs pondérations cibles "
