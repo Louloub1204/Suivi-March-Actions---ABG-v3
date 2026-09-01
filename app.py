@@ -297,8 +297,16 @@ st.markdown("""
 
 @st.cache_resource
 def _bootstrap() -> None:
-    """Ensure schema exists. Does NOT seed data — use seed_postgres.py for that."""
-    db.init_db()
+    """Ensure schema exists. Fails silently if DB unreachable at startup."""
+    try:
+        db.init_db()
+    except Exception as _e:
+        import streamlit as _st
+        _st.warning(
+            f"⚠️ Connexion base de données impossible au démarrage : {_e}  \n"
+            "L'application va continuer — réessayez dans quelques secondes.",
+            icon="🔌",
+        )
 
 
 _bootstrap()

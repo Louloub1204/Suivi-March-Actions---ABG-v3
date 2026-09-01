@@ -56,21 +56,58 @@ _engine: Engine | None = None
 def get_engine() -> Engine:
     global _engine
     if _engine is None:
-        _engine = create_engine(
-            _get_db_url(),
-            pool_pre_ping=True,
-            pool_recycle=300,
-            future=True,
-        )
+        _engine = _make_engine()
     return _engine
+
+
+def _make_engine() -> Engine:
+    return create_engine(
+        _get_db_url(),
+        pool_pre_ping=True,
+        pool_recycle=300,
+        pool_size=3,
+        max_overflow=2,
+        connect_args={
+            "connect_timeout": 10,
+            "keepalives": 1,
+            "keepalives_idle": 30,
+            "keepalives_interval": 10,
+            "keepalives_count": 5,
+        },
+        future=True,
+    )
+
+
+def reset_engine() -> None:
+    """Discard the cached engine — next call to get_engine() creates a fresh one."""
+    global _engine
+    if _engine is not None:
+        try:
+            _engine.dispose()
+        except Exception:
+            pass
+    _engine = None
 
 
 @contextmanager
 def conn():
-    """Yield a SQLAlchemy connection inside a transaction."""
+    """Yield a SQLAlchemy connection inside a transaction.
+
+    Auto-resets the engine pool on connection errors so the next request
+    gets a fresh connection (handles Supabase idle timeouts).
+    """
     eng = get_engine()
-    with eng.begin() as c:
-        yield c
+    try:
+        with eng.begin() as c:
+            yield c
+    except Exception as e:
+        err_str = str(e).lower()
+        if any(k in err_str for k in (
+            "connection", "timeout", "closed", "reset", "broken pipe",
+            "server closed", "operational",
+        )):
+            reset_engine()
+        raise
 
 
 # ---------------------------------------------------------------------------
@@ -587,8 +624,30 @@ def replace_all_targets(df: pd.DataFrame) -> int:
 # ---------------------------------------------------------------------------
 
 def get_dividends_dated() -> list[dict]:
-    """Return all dividends with their payment dates as a list of dicts."""
+    """Return all dividends with their payment dates as a list of dicts.
+
+    Creates the table on the fly if it doesn't exist yet (migration safety).
+    """
     eng = get_engine()
+    # Ensure table exists — safe to call repeatedly (IF NOT EXISTS)
+    with eng.begin() as c:
+        c.execute(text("""
+            CREATE TABLE IF NOT EXISTS dividends_dated (
+                id BIGSERIAL PRIMARY KEY,
+                ticker TEXT NOT NULL,
+                amount DOUBLE PRECISION NOT NULL,
+                payment_date DATE NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """))
+        c.execute(text(
+            "CREATE INDEX IF NOT EXISTS idx_divdated_ticker "
+            "ON dividends_dated(ticker)"
+        ))
+        c.execute(text(
+            "CREATE INDEX IF NOT EXISTS idx_divdated_date "
+            "ON dividends_dated(payment_date)"
+        ))
     df = pd.read_sql_query(
         text("SELECT id, ticker, amount, payment_date "
              "FROM dividends_dated ORDER BY payment_date DESC, ticker"),
