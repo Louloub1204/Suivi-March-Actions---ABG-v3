@@ -202,14 +202,17 @@ def read_last_cours_row(xlsm_bytes: bytes) -> tuple[pd.Timestamp, pd.DataFrame]:
 
 
 def read_full_cours_history(xlsm_bytes: bytes) -> pd.DataFrame:
-    """Read the entire 'Cours' sheet, columns A to BJ, in long format.
+    """Read the entire 'Cours' sheet in long format.
 
-    Mirrors what the user does manually: copy A:BJ from the source workbook.
     The sheet has:
       - col A : volume index (ignored)
       - col B : date
-      - col C..BJ : tickers (one per column), header row = ticker symbol
+      - col C..last : tickers (one per column), header row = ticker symbol
     Each cell holds the closing price for that (date, ticker).
+
+    The last column is detected automatically from the header row, so a
+    newly listed stock added at the right of the sheet is picked up without
+    any code change. Columns whose header (row 1) is empty are ignored.
 
     Returns a DataFrame with columns: date, ticker, price.
     Rows with empty dates or empty prices are dropped.
@@ -226,14 +229,13 @@ def read_full_cours_history(xlsm_bytes: bytes) -> pd.DataFrame:
         )
     ws = wb["Cours"]
 
-    # Column BJ corresponds to the 62nd column (A=1, B=2, ..., BJ=62).
-    # We read up to that column and let pandas drop empty trailing columns.
-    MAX_COL = 62
-
+    # No fixed column limit: read every column of the sheet. Columns with no
+    # ticker symbol in row 1 are skipped below (isinstance(h, str) check), so
+    # empty trailing columns cost nothing and new tickers are never cut off.
     headers: list = []
     rows: list[dict] = []
 
-    for i, row in enumerate(ws.iter_rows(min_col=1, max_col=MAX_COL, values_only=True), start=1):
+    for i, row in enumerate(ws.iter_rows(min_col=1, values_only=True), start=1):
         if i == 1:
             headers = list(row)
             continue
