@@ -315,26 +315,36 @@ _bootstrap()
 # ---------------------------------------------------------------------------
 # Daily auto-sync — runs once per session (not per rerun)
 # ---------------------------------------------------------------------------
-@st.cache_resource
-def _run_auto_sync_once():
-    """Run at most once per Streamlit server process (survives reruns)."""
-    return run_daily_auto_sync_if_needed()
+@st.cache_resource(show_spinner=False)
+def _run_auto_sync_for_day(day: str) -> dict:
+    """Run the daily auto-sync at most once per calendar day per server process.
 
-_did_sync = _run_auto_sync_once()
+    Keyed by `day`: a server that stays up overnight syncs again the next
+    morning (the former version ran only once per server start).
+    """
+    return {"ran": run_daily_auto_sync_if_needed(), "caches_cleared": False}
+
+_sync_state = _run_auto_sync_for_day(date.today().isoformat())
+_did_sync = _sync_state["ran"]
 
 
 # ---------------------------------------------------------------------------
 # Cached data accessors — minimize Postgres round-trips
 # ---------------------------------------------------------------------------
-# These wrap the db.* readers with a 5-minute TTL. After any write
-# (transactions, prices, dividends), call _clear_data_cache() to refresh.
+# These wrap the db.* readers with a 10-minute TTL. After any write
+# (transactions, prices, dividends, targets), call _clear_data_cache().
+#
+# Transactions and prices use cache_resource: every rerun receives the SAME
+# DataFrame object instead of a fresh 5 MB copy, and portfolio.py keeps its
+# lookup indexes for that object. They are READ-ONLY: never modify them in
+# place - call .copy() first (as the Historique page does).
 
-@st.cache_data(ttl=600, show_spinner=False)
+@st.cache_resource(ttl=600, show_spinner=False)
 def _cached_transactions() -> pd.DataFrame:
     return db.get_all_transactions_for_compute()
 
 
-@st.cache_data(ttl=600, show_spinner=False)
+@st.cache_resource(ttl=600, show_spinner=False)
 def _cached_prices() -> pd.DataFrame:
     return db.get_prices()
 
@@ -389,7 +399,7 @@ def _cached_exposures_data(
         fcps_scope = all_fcps
     else:
         fcps_scope = [scope_key]
-    divs = _build_divs_by_fcp(fcps_scope, pd.Timestamp(as_of_str))
+    divs = _build_divs_by_fcp(tuple(fcps_scope), as_of_str)
     return _ce(tx, prices, fcps_scope, pd.Timestamp(as_of_str), divs)
 
 
@@ -411,6 +421,88 @@ def _data_hash() -> tuple[int, int]:
     return (len(tx), len(prices))
 
 
+# ── Cached heavy computations ───────────────────────────────────────────────
+# Keyed by dates + _data_hash(); all are cleared by _clear_data_cache() after
+# any write. Revisiting a tab with the same dates is then instantaneous.
+
+@st.cache_data(ttl=600, show_spinner=False)
+def _cached_targets() -> pd.DataFrame:
+    """All targets in ONE query (instead of one query per FCP)."""
+    return db.get_targets()
+
+
+def _targets_for(fcp_name: str) -> pd.DataFrame:
+    t = _cached_targets()
+    return t[t["fcp"] == fcp_name].reset_index(drop=True)
+
+
+@st.cache_data(ttl=600, show_spinner=False, max_entries=64)
+def _cached_dashboard(fcp_name: str, as_of_str: str, key: tuple):
+    divs = _build_divs_by_fcp(tuple(_cached_fcps()), as_of_str).get(fcp_name, {})
+    return build_dashboard(
+        _cached_transactions(), _cached_prices(), fcp_name,
+        pd.Timestamp(as_of_str), divs,
+    )
+
+
+@st.cache_data(ttl=600, show_spinner=False, max_entries=64)
+def _cached_tracking(fcp_name: str, as_of_str: str, key: tuple) -> pd.DataFrame:
+    targets = _targets_for(fcp_name)
+    if targets.empty:
+        return pd.DataFrame()
+    divs = _build_divs_by_fcp(tuple(_cached_fcps()), as_of_str).get(fcp_name, {})
+    return compute_tracking(
+        _cached_transactions(), _cached_prices(), targets, fcp_name,
+        pd.Timestamp(as_of_str), divs,
+    )
+
+
+@st.cache_data(ttl=600, show_spinner=False, max_entries=16)
+def _cached_period_perf(d0: str, d1: str, as_of_str: str, key: tuple) -> pd.DataFrame:
+    from portfolio import compute_period_perf
+    fcps_all = _cached_fcps()
+    return compute_period_perf(
+        _cached_transactions(), _cached_prices(), fcps_all,
+        pd.Timestamp(d0), pd.Timestamp(d1),
+        _build_divs_by_fcp(tuple(fcps_all), as_of_str),
+    )
+
+
+@st.cache_data(ttl=600, show_spinner=False, max_entries=16)
+def _cached_attribution(d0: str, d1: str, key: tuple) -> pd.DataFrame:
+    return compute_attribution(
+        _cached_transactions(), _cached_prices(), _cached_fcps(),
+        pd.Timestamp(d0), pd.Timestamp(d1), _cached_dividends_dated(),
+    )
+
+
+@st.cache_data(ttl=600, show_spinner=False, max_entries=16)
+def _cached_active_mgmt(d0: str, d1: str, key: tuple) -> pd.DataFrame:
+    from portfolio import compute_active_management
+    return compute_active_management(
+        _cached_transactions(), _cached_prices(), _cached_fcps(),
+        pd.Timestamp(d0), pd.Timestamp(d1), _cached_dividends_dated(),
+    )
+
+
+@st.cache_data(ttl=600, show_spinner=False, max_entries=64)
+def _cached_stock_picking(fcp_name: str, d0: str, d1: str, key: tuple) -> pd.DataFrame:
+    from portfolio import compute_stock_picking_detail
+    return compute_stock_picking_detail(
+        _cached_transactions(), _cached_prices(), fcp_name,
+        pd.Timestamp(d0), pd.Timestamp(d1),
+    )
+
+
+@st.cache_data(ttl=600, show_spinner=False, max_entries=64)
+def _cached_tx_analysis(fcp_name: str, d0: str, d1: str, key: tuple) -> pd.DataFrame:
+    from portfolio import compute_transaction_analysis
+    return compute_transaction_analysis(
+        _cached_transactions(), _cached_prices(), fcp_name,
+        pd.Timestamp(d0), pd.Timestamp(d1),
+    )
+
+
 def _clear_data_cache() -> None:
     """Invalidate all cached reads. Call after any write."""
     _cached_transactions.clear()
@@ -422,6 +514,10 @@ def _clear_data_cache() -> None:
     _cached_recap_data.clear()
     _cached_exposures_data.clear()
     _build_divs_by_fcp.clear()
+    for _fn in (_cached_targets, _cached_dashboard, _cached_tracking,
+                _cached_period_perf, _cached_attribution, _cached_active_mgmt,
+                _cached_stock_picking, _cached_tx_analysis):
+        _fn.clear()
 
 
 def _do_brvm_refresh() -> tuple[int, str, object]:
@@ -565,6 +661,7 @@ def render_table(
 
 
 
+@st.cache_data(show_spinner=False, max_entries=64)
 def _to_xlsx(df: pd.DataFrame, sheet_name: str = "Données") -> bytes:
     """Convert a DataFrame to a styled .xlsx file and return bytes.
 
@@ -651,6 +748,12 @@ def _xlsx_btn(label: str, df: pd.DataFrame, filename: str,
         st.error(f"Export Excel impossible : {e}")
 
 
+# Fresh data after the daily sync: drop anything cached before it ran (once).
+if _sync_state["ran"] and not _sync_state["caches_cleared"]:
+    _sync_state["caches_cleared"] = True
+    _clear_data_cache()
+
+
 # ---------------------------------------------------------------------------
 # Sidebar - FCP selection + global controls
 # ---------------------------------------------------------------------------
@@ -710,7 +813,7 @@ if page == "📈 Tableau de bord":
     dated_divs = resolve_dividends_for_date(_cached_dividends_dated(), as_of_ts)
     divs.update(dated_divs)  # dated overrides/adds on top of legacy
 
-    rows, totals = build_dashboard(tx_all, prices, fcp, as_of_ts, divs)
+    rows, totals = _cached_dashboard(fcp, as_of_ts.isoformat(), _data_hash())
     prev_date = totals["prev_date"]
 
     if is_weekly_fcp(fcp):
@@ -1037,12 +1140,10 @@ elif page == "📊 Récap variations":
                 f"{pd.Timestamp(period_start).strftime('%d/%m/%Y')} → "
                 f"{pd.Timestamp(period_end).strftime('%d/%m/%Y')}…"
             ):
-                from portfolio import compute_period_perf
-                period_result = compute_period_perf(
-                    tx_all, prices, all_fcps,
-                    pd.Timestamp(period_start),
-                    pd.Timestamp(period_end),
-                    divs_by_fcp,
+                period_result = _cached_period_perf(
+                    pd.Timestamp(period_start).isoformat(),
+                    pd.Timestamp(period_end).isoformat(),
+                    as_of_ts.isoformat(), _data_hash(),
                 )
 
             if period_result.empty:
@@ -1146,13 +1247,10 @@ elif page == "📊 Récap variations":
 
         if not (period_start >= period_end):
             with st.spinner("Calcul du tableau d'attribution…"):
-                from portfolio import compute_attribution
-                divs_dated = _cached_dividends_dated()
-                attr = compute_attribution(
-                    tx_all, prices, all_fcps,
-                    pd.Timestamp(period_start),
-                    pd.Timestamp(period_end),
-                    divs_dated,
+                attr = _cached_attribution(
+                    pd.Timestamp(period_start).isoformat(),
+                    pd.Timestamp(period_end).isoformat(),
+                    _data_hash(),
                 )
 
             if attr.empty:
@@ -1341,10 +1439,8 @@ elif page == "📊 Récap variations":
             n_days_g = (d1_g - d0_g).days
 
             with st.spinner("Calcul des métriques de gestion active…"):
-                divs_dated_g = _cached_dividends_dated()
-                mgmt = compute_active_management(
-                    tx_all, prices, all_fcps,
-                    d0_g, d1_g, divs_dated_g,
+                mgmt = _cached_active_mgmt(
+                    d0_g.isoformat(), d1_g.isoformat(), _data_hash(),
                 )
 
             if mgmt.empty:
@@ -1425,8 +1521,8 @@ elif page == "📊 Récap variations":
                         "Contribution = Poids × (Rendement titre − Rendement BRVM). "
                         "Positif = le titre a surperformé l'indice, bénéfique pour le FCP."
                     )
-                    sp_detail = compute_stock_picking_detail(
-                        tx_all, prices, fcp_detail, d0_g, d1_g
+                    sp_detail = _cached_stock_picking(
+                        fcp_detail, d0_g.isoformat(), d1_g.isoformat(), _data_hash()
                     )
                     if sp_detail.empty:
                         st.info("Aucune position au début de la période.")
@@ -1450,8 +1546,8 @@ elif page == "📊 Récap variations":
                         "Timing > 0 = transaction dans le bon sens vs cours début période. "
                         "P&L = gain/perte réalisé(e) ou latent(e) par rapport au cours fin."
                     )
-                    tx_detail = compute_transaction_analysis(
-                        tx_all, prices, fcp_detail, d0_g, d1_g
+                    tx_detail = _cached_tx_analysis(
+                        fcp_detail, d0_g.isoformat(), d1_g.isoformat(), _data_hash()
                     )
                     if tx_detail.empty:
                         st.info("Aucune transaction sur la période.")
@@ -1839,7 +1935,7 @@ elif page == "🎯 Expositions":
         )
     else:
         # Build recap: for each dividend, compute amount per FCP
-        from portfolio import compute_positions as _cp
+        from portfolio import quantity_held as _qty_held
 
         recap_rows = []
         tx_all_div = _tx_all_global
@@ -1851,13 +1947,7 @@ elif page == "🎯 Expositions":
             pay_date = pd.Timestamp(d["payment_date"])
 
             for fcp_name in all_fcps_div:
-                pos = _cp(tx_all_div, fcp_name, pay_date)
-                if pos.empty:
-                    continue
-                row_t = pos[pos["ticker"] == ticker_d]
-                if row_t.empty:
-                    continue
-                qty = float(row_t.iloc[0]["quantite"])
+                qty = _qty_held(tx_all_div, fcp_name, ticker_d, pay_date)
                 if qty <= 0:
                     continue
                 total_div = qty * amount_d
@@ -1972,7 +2062,7 @@ elif page == "🎯 Expositions":
             "Les acquisitions/cessions futures modifieront ces montants."
         )
 
-        from portfolio import compute_positions as _cp_fut
+        from portfolio import quantity_held as _qty_held
 
         fut_rows = []
         tx_all_fut = _tx_all_global
@@ -1985,13 +2075,7 @@ elif page == "🎯 Expositions":
 
             for fcp_name in all_fcps_fut:
                 # Use positions at as_of_ts (current snapshot)
-                pos = _cp_fut(tx_all_fut, fcp_name, as_of_ts)
-                if pos.empty:
-                    continue
-                row_t = pos[pos["ticker"] == ticker_d]
-                if row_t.empty:
-                    continue
-                qty = float(row_t.iloc[0]["quantite"])
+                qty = _qty_held(tx_all_fut, fcp_name, ticker_d, as_of_ts)
                 if qty <= 0:
                     continue
                 fut_rows.append({
@@ -2294,14 +2378,9 @@ elif page == "📋 Suivi des cibles":
 
         # Compute tracking for each eligible FCP
         all_tracking_rows = []
+        _key = _data_hash()
         for fcp_name in eligible_fcps:
-            targets_df_f = db.get_targets(fcp_name)
-            if targets_df_f.empty:
-                continue
-            divs_f = _build_divs_by_fcp(tuple(fcps), as_of_ts.isoformat()).get(fcp_name, {})
-            t = compute_tracking(
-                tx_all, prices, targets_df_f, fcp_name, as_of_ts, divs_f
-            )
+            t = _cached_tracking(fcp_name, as_of_ts.isoformat(), _key)
             if not t.empty:
                 t["FCP"] = fcp_name
                 all_tracking_rows.append(t)
@@ -2484,7 +2563,7 @@ elif page == "📋 Suivi des cibles":
     # ── Vue par FCP ──────────────────────────────────────────────────────────
     else:
         fcp_scope = scope
-        targets_df = db.get_targets(fcp_scope)
+        targets_df = _targets_for(fcp_scope)
         divs_scope = _build_divs_by_fcp(tuple(fcps), as_of_ts.isoformat()).get(fcp_scope, {})
 
         if targets_df.empty:
@@ -2493,9 +2572,7 @@ elif page == "📋 Suivi des cibles":
                 "Utilisez le panneau d'import ci-dessus."
             )
         else:
-            tracking = compute_tracking(
-                tx_all, prices, targets_df, fcp_scope, as_of_ts, divs_scope
-            )
+            tracking = _cached_tracking(fcp_scope, as_of_ts.isoformat(), _data_hash())
 
             if tracking.empty:
                 st.info("Aucune position ni cible à afficher.")

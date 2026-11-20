@@ -11,15 +11,112 @@ Replicates the Excel formulas from FCP PLACEMENT CROISSANCE:
 """
 from __future__ import annotations
 
+import functools as _functools
+import threading as _threading
+
+import numpy as np
 import pandas as pd
 
 from fcp_calendar import previous_cours_date as _pcd_raw
-import functools as _functools
 
 @_functools.lru_cache(maxsize=512)
 def previous_cours_date(fcp: str, d) -> "pd.Timestamp":
     """Memoized wrapper — same date+fcp always returns same result."""
     return _pcd_raw(fcp, d)
+
+
+# ---------------------------------------------------------------------------
+# Fast lookup indexes (performance layer)
+# ---------------------------------------------------------------------------
+# The computation functions below call get_price_on / _qty_before /
+# _period_trades thousands of times per page. Scanning the full price table
+# (~150 000 rows) and re-parsing every date on each call made pages slow.
+#
+# Instead, each input DataFrame is indexed ONCE and the index is reused for
+# as long as the same DataFrame object is passed in. The cache holds a strong
+# reference to the indexed object, so an `is` check is a safe identity test
+# (the object cannot be garbage-collected and its id reused while cached).
+# New data (after a refresh) arrives as a new object and gets a new index.
+# Only the lookup strategy changes - results are identical.
+
+_INDEX_LOCK = _threading.Lock()
+_PRICE_INDEX: list[tuple[pd.DataFrame, dict]] = []
+_TX_INDEX: list[tuple[pd.DataFrame, dict]] = []
+_INDEX_SLOTS = 3
+
+
+def _ns(d) -> np.datetime64:
+    """Any date-like → numpy datetime64[ns] (naive)."""
+    return pd.Timestamp(d).as_unit("ns").to_datetime64()
+
+
+def _lookup(cache: list, obj: pd.DataFrame):
+    with _INDEX_LOCK:
+        for o, idx in cache:
+            if o is obj:
+                return idx
+    return None
+
+
+def _store(cache: list, obj: pd.DataFrame, idx: dict) -> dict:
+    with _INDEX_LOCK:
+        cache.insert(0, (obj, idx))
+        del cache[_INDEX_SLOTS:]
+    return idx
+
+
+def _price_index(cours: pd.DataFrame) -> dict:
+    """{ticker: (dates[ns] sorted, prices)} built once per prices DataFrame."""
+    idx = _lookup(_PRICE_INDEX, cours)
+    if idx is not None:
+        return idx
+    tmp = pd.DataFrame({
+        "t": cours["ticker"].to_numpy(),
+        "d": pd.to_datetime(cours["date"]).to_numpy(dtype="datetime64[ns]"),
+        "p": pd.to_numeric(cours["price"], errors="coerce").to_numpy(dtype=float),
+    }).sort_values(["t", "d"], kind="mergesort")
+    idx = {
+        t: (g["d"].to_numpy(), g["p"].to_numpy())
+        for t, g in tmp.groupby("t", sort=False)
+    }
+    return _store(_PRICE_INDEX, cours, idx)
+
+
+def _tx_index(transactions: pd.DataFrame) -> dict:
+    """Prepared transactions, built once per transactions DataFrame.
+
+    Returns a dict with:
+      df      : copy of `transactions` with `date` as datetime64[ns] and a
+                `_signed` column (+qty for ACHAT, −qty otherwise).
+                SHARED - callers must never modify it in place.
+      dates   : `date` column as a numpy datetime64[ns] array
+      signed  : `_signed` column as a numpy array
+      by_fcp  : {fcp: row positions}
+      by_pair : {(fcp, ticker): row positions}   (original row order)
+    """
+    idx = _lookup(_TX_INDEX, transactions)
+    if idx is not None:
+        return idx
+    df = transactions.copy()
+    df["date"] = pd.to_datetime(df["date"]).astype("datetime64[ns]")
+    df["_signed"] = np.where(df["sens"] == "ACHAT", df["quantite"], -df["quantite"])
+    idx = {
+        "df": df,
+        "dates": df["date"].to_numpy(),
+        "signed": df["_signed"].to_numpy(),
+        "by_fcp": df.groupby("fcp", sort=False).indices,
+        "by_pair": df.groupby(["fcp", "ticker"], sort=False).indices,
+    }
+    return _store(_TX_INDEX, transactions, idx)
+
+
+def _tx_dated(transactions: pd.DataFrame) -> pd.DataFrame:
+    """Transactions with `date` already parsed to datetime (read-only, shared).
+
+    Drop-in replacement for the former per-call
+    `df = transactions.copy(); df["date"] = pd.to_datetime(df["date"])`.
+    """
+    return _tx_index(transactions)["df"]
 
 def get_dividends_on_date(
     dividends_dated: list[dict],
@@ -141,30 +238,28 @@ def compute_positions(
     This means the running cost is `Σ cost_in − Σ cost_out` and CMP is
     `cost / quantite`, which stays stable across pure VENTEs of held shares.
     """
+    empty = pd.DataFrame(columns=["ticker", "quantite", "cout_total", "cmp"])
     if transactions.empty:
-        return pd.DataFrame(columns=["ticker", "quantite", "cout_total", "cmp"])
+        return empty
 
-    df = transactions.copy()
-    df["date"] = pd.to_datetime(df["date"])
-    mask = (df["fcp"] == fcp) & (df["date"] <= pd.Timestamp(as_of_date))
-    df = df.loc[mask]
+    ix = _tx_index(transactions)
+    rows = ix["by_fcp"].get(fcp)
+    if rows is None:
+        return empty
+    rows = rows[ix["dates"][rows] <= _ns(as_of_date)]
+    if len(rows) == 0:
+        return empty
 
-    if df.empty:
-        return pd.DataFrame(columns=["ticker", "quantite", "cout_total", "cmp"])
-
-    df["signed_qty"] = df.apply(
-        lambda r: r["quantite"] if r["sens"] == "ACHAT" else -r["quantite"],
-        axis=1,
-    )
+    df = ix["df"].iloc[rows]
     grouped = df.groupby("ticker").agg(
-        quantite=("signed_qty", "sum"),
+        quantite=("_signed", "sum"),
         cost_in=("cost_in", "sum"),
         cost_out=("cost_out", "sum"),
     )
     grouped["cout_total"] = grouped["cost_in"] - grouped["cost_out"]
-    grouped["cmp"] = grouped.apply(
-        lambda r: r["cout_total"] / r["quantite"] if r["quantite"] else 0.0,
-        axis=1,
+    qty = grouped["quantite"]
+    grouped["cmp"] = np.where(
+        qty != 0, grouped["cout_total"] / qty.where(qty != 0, 1), 0.0
     )
     return grouped[["quantite", "cout_total", "cmp"]].reset_index()
 
@@ -173,14 +268,14 @@ def get_price_on(cours: pd.DataFrame, ticker: str, target_date: pd.Timestamp) ->
     """Last known price for `ticker` on or before `target_date`. None if absent."""
     if cours.empty:
         return None
-    df = cours[cours["ticker"] == ticker].copy()
-    if df.empty:
+    series = _price_index(cours).get(ticker)
+    if series is None:
         return None
-    df["date"] = pd.to_datetime(df["date"])
-    df = df[df["date"] <= pd.Timestamp(target_date)].sort_values("date")
-    if df.empty:
+    dates, prices = series
+    pos = int(np.searchsorted(dates, _ns(target_date), side="right")) - 1
+    if pos < 0:
         return None
-    return float(df.iloc[-1]["price"])
+    return float(prices[pos])
 
 
 def previous_business_date(d: pd.Timestamp) -> pd.Timestamp:
@@ -199,18 +294,24 @@ def _qty_before(transactions: pd.DataFrame, fcp: str, ticker: str,
     """
     if transactions.empty:
         return 0.0
-    df = transactions
-    mask = (
-        (df["fcp"] == fcp)
-        & (df["ticker"] == ticker)
-        & (pd.to_datetime(df["date"]) <= pd.Timestamp(cutoff))
-    )
-    sub = df.loc[mask]
-    if sub.empty:
+    ix = _tx_index(transactions)
+    rows = ix["by_pair"].get((fcp, ticker))
+    if rows is None:
         return 0.0
-    achat = sub.loc[sub["sens"] == "ACHAT", "quantite"].sum()
-    vente = sub.loc[sub["sens"] == "VENTE", "quantite"].sum()
-    return float(achat - vente)
+    rows = rows[ix["dates"][rows] <= _ns(cutoff)]
+    if len(rows) == 0:
+        return 0.0
+    return float(ix["signed"][rows].sum())
+
+
+def quantity_held(transactions: pd.DataFrame, fcp: str, ticker: str,
+                  on_date: pd.Timestamp) -> float:
+    """Net quantity of `ticker` held by `fcp` on `on_date` (inclusive).
+
+    Same value as compute_positions(...)['quantite'] for that ticker (0.0 if
+    never held), but reads a single line instead of rebuilding the portfolio.
+    """
+    return _qty_before(transactions, fcp, str(ticker).strip(), on_date)
 
 
 def _period_trades(transactions: pd.DataFrame, fcp: str, ticker: str,
@@ -221,17 +322,16 @@ def _period_trades(transactions: pd.DataFrame, fcp: str, ticker: str,
     Lower bound exclusive (a trade on prev_date is in the held bucket);
     upper bound inclusive.
     """
+    cols = ["sens", "quantite", "prix", "frais"]
     if transactions.empty:
         return transactions.iloc[0:0]
-    df = transactions
-    d = pd.to_datetime(df["date"])
-    mask = (
-        (df["fcp"] == fcp)
-        & (df["ticker"] == ticker)
-        & (d > pd.Timestamp(prev_date))
-        & (d <= pd.Timestamp(as_of_date))
-    )
-    return df.loc[mask, ["sens", "quantite", "prix", "frais"]].copy()
+    ix = _tx_index(transactions)
+    rows = ix["by_pair"].get((fcp, ticker))
+    if rows is None:
+        return ix["df"].iloc[0:0][cols].copy()
+    d = ix["dates"][rows]
+    rows = rows[(d > _ns(prev_date)) & (d <= _ns(as_of_date))]
+    return ix["df"].iloc[rows][cols].copy()
 
 
 # Toggles: how to treat fees on ACHAT trades within the day P&L.
@@ -275,9 +375,8 @@ def build_dashboard(
             "prev_date": prev_date,
         }
 
-    # Pre-filter transactions for this FCP to speed up subsequent ticker queries.
-    tx_fcp = transactions[transactions["fcp"] == fcp].copy() if not transactions.empty \
-             else transactions.iloc[0:0]
+    # Lookups go through the shared index (see _tx_index): no per-call copy.
+    tx_fcp = transactions
 
     rows: list[PortfolioRow] = []
 
@@ -402,8 +501,7 @@ def compute_recap(
                 valo_ystart += float(p["quantite"]) * price
 
         # Cash injected during YTD = net ACHAT − net VENTE
-        df = transactions.copy()
-        df["date"] = pd.to_datetime(df["date"])
+        df = _tx_dated(transactions)
         ytd_mask = (
             (df["fcp"] == fcp)
             & (df["date"] > year_start)
@@ -705,9 +803,8 @@ def compute_action_drivers(
         prev_date = previous_cours_date(fcp, as_of_ts)
         divs = dividends_by_fcp.get(fcp, {})
 
-        # Pre-filter transactions for this FCP
-        tx_fcp = transactions[transactions["fcp"] == fcp].copy() \
-                 if not transactions.empty else transactions.iloc[0:0]
+        # Lookups go through the shared index (see _tx_index): no per-call copy.
+        tx_fcp = transactions
 
         # Compute total FCP valuation for % calculation later
         fcp_pnl_total = 0.0
@@ -867,8 +964,7 @@ def compute_period_perf(
 
         # Net cash flows strictly inside the period (d0, d1]
         if not transactions.empty:
-            df = transactions.copy()
-            df["date"] = pd.to_datetime(df["date"])
+            df = _tx_dated(transactions)
             mask = (
                 (df["fcp"] == fcp)
                 & (df["date"] > d0)
@@ -966,8 +1062,7 @@ def compute_attribution(
         achats = 0.0
         ventes = 0.0
         if not transactions.empty:
-            df = transactions.copy()
-            df["date"] = pd.to_datetime(df["date"])
+            df = _tx_dated(transactions)
             mask = (
                 (df["fcp"] == fcp)
                 & (df["date"] > d0)
@@ -1003,13 +1098,7 @@ def compute_attribution(
                 if not ticker_d or amount_d == 0:
                     continue
                 # Quantity held by this FCP on the payment date
-                pos_d = compute_positions(transactions, fcp, pd_date)
-                if pos_d.empty:
-                    continue
-                row_d = pos_d[pos_d["ticker"] == ticker_d]
-                if row_d.empty:
-                    continue
-                qty_d = float(row_d.iloc[0]["quantite"])
+                qty_d = quantity_held(transactions, fcp, ticker_d, pd_date)
                 if qty_d > 0:
                     dividendes += qty_d * amount_d
 
@@ -1131,8 +1220,7 @@ def compute_active_management(
 
         # Period transactions
         if not transactions.empty:
-            df_tx = transactions.copy()
-            df_tx["date"] = pd.to_datetime(df_tx["date"])
+            df_tx = _tx_dated(transactions)
             mask = (
                 (df_tx["fcp"] == fcp)
                 & (df_tx["date"] > d0)
@@ -1296,8 +1384,7 @@ def compute_transaction_analysis(
     if transactions.empty:
         return pd.DataFrame()
 
-    df = transactions.copy()
-    df["date"] = pd.to_datetime(df["date"])
+    df = _tx_dated(transactions)
     mask = (
         (df["fcp"] == fcp)
         & (df["date"] > d0)

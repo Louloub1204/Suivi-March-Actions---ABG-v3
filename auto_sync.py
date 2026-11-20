@@ -115,6 +115,8 @@ def run_daily_auto_sync_if_needed() -> bool:
             db.record_sync(kind, "success" if ok else "error", msg)
             results.append((label, ok, msg))
 
+        _sync_status_cached.clear()  # sidebar footer shows the new status
+
         progress.progress(100, text="Terminé.")
 
         # Compact result summary
@@ -138,14 +140,31 @@ def run_daily_auto_sync_if_needed() -> bool:
     return True
 
 
+@st.cache_data(ttl=300, show_spinner=False)
+def _sync_status_cached(day: str) -> dict:
+    """Sync status of every kind in one cached call (was 3 queries per click).
+
+    Keyed by day so it refreshes at midnight; cleared after each sync run.
+    """
+    out = {}
+    for kind in SYNC_KINDS:
+        try:
+            out[kind] = db.get_sync_status(kind)
+        except Exception:
+            out[kind] = None
+    return out
+
+
 def render_sync_status_sidebar() -> None:
     """Show a small footer in the sidebar with last sync timestamps."""
+    import datetime as _dt
+    statuses = _sync_status_cached(_dt.date.today().isoformat())
     with st.sidebar:
         st.divider()
         st.caption("**Dernière synchronisation auto**")
         for kind in SYNC_KINDS:
             label = _SYNC_FUNCS[kind][0]
-            rec = db.get_sync_status(kind)
+            rec = statuses.get(kind)
             if rec is None:
                 st.caption(f"{label} : *jamais*")
             else:
