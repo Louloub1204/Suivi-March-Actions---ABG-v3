@@ -1466,6 +1466,7 @@ def compute_breakeven_targets(
     variation_jour: float,
     ref_prices: dict[str, float] | None = None,
     daily_limit: float = BRVM_DAILY_LIMIT,
+    n_sessions: int = 1,
 ) -> tuple[dict, pd.DataFrame, pd.DataFrame]:
     """Target prices that would bring a negative daily variation back to zero.
 
@@ -1473,9 +1474,12 @@ def compute_breakeven_targets(
     is L = −variation_jour. Raising a title's price by Δ improves the day
     P&L by quantité × Δ.
 
-    Session cap: on the BRVM a title cannot close above its reference price
-    × (1 + daily_limit). `ref_prices` gives that reference (last close before
-    the session); the title's `prev_close` is used when missing.
+    Cap: on the BRVM a title cannot close more than daily_limit above its
+    previous close in one session. Over `n_sessions` sessions left before
+    the fund's next valuation (1 for daily FCPs, up to 5 for weekly ones),
+    the highest reachable price is reference × (1 + daily_limit) ** n.
+    `ref_prices` gives the reference (last close before the first of those
+    sessions); the title's `prev_close` is used when missing.
 
     Returns (summary, single, combo):
       • single : one title alone recovers L  (cours + L / quantité), flagged
@@ -1500,7 +1504,8 @@ def compute_breakeven_targets(
         float(ref_prices.get(t) or p or c)
         for t, p, c in zip(act["ticker"], act["prev_close"], act["close"])
     ]
-    act["plafond"] = act["ref"] * (1 + daily_limit)
+    n_sessions = max(int(n_sessions), 1)
+    act["plafond"] = act["ref"] * (1 + daily_limit) ** n_sessions
     act["marge"] = (act["plafond"] - act["close"]).clip(lower=0)  # FCFA / action
 
     # ── Uniform rise and single-title targets ─────────────────────────────
@@ -1572,5 +1577,24 @@ def compute_breakeven_targets(
         "couvert": couvert,
         "possible_en_une_seance": couvert >= perte - 1e-3,
         "daily_limit": daily_limit,
+        "n_sessions": n_sessions,
+        "plafond_cumule": (1 + daily_limit) ** n_sessions - 1,
     }
     return summary, single, combo
+
+
+def sessions_until_valuation(fcp: str, as_of: pd.Timestamp) -> tuple[int, pd.Timestamp]:
+    """Sessions left, as_of included, until the fund's next valuation date.
+
+    Daily FCPs: 1 session (the as_of date). Weekly FCPs: business days from
+    as_of up to the next occurrence of their valuation weekday (as_of itself
+    if it is that weekday). Public holidays are not taken into account.
+    Returns (n_sessions, valuation_date).
+    """
+    from fcp_calendar import WEEKLY_FCPS
+    as_of = pd.Timestamp(as_of).normalize()
+    if fcp not in WEEKLY_FCPS:
+        return 1, as_of
+    val_date = as_of + pd.Timedelta(days=(WEEKLY_FCPS[fcp] - as_of.weekday()) % 7)
+    n = len(pd.bdate_range(as_of, val_date))
+    return max(n, 1), val_date

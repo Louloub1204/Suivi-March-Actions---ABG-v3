@@ -897,16 +897,29 @@ if page == "📈 Tableau de bord":
 
     # ── Retour à l'équilibre (variation du jour négative) ───────────────────
     if totals["variation_jour"] < 0 and not rows.empty:
-        from portfolio import compute_breakeven_targets, get_price_on
-        # Reference price of the session (last close before the date) for
-        # the BRVM ±7.5% band; differs from prev_close for weekly FCPs.
+        from portfolio import (compute_breakeven_targets, get_price_on,
+                               sessions_until_valuation)
+        # Reference price (last close before the date) for the BRVM ±7.5%
+        # band; differs from prev_close for weekly FCPs. Weekly FCPs have
+        # several sessions left before their next valuation: the cap compounds.
         _ref_day = as_of_ts - pd.Timedelta(days=1)
         _refs = {t: get_price_on(prices, t, _ref_day) for t in rows["ticker"]}
+        _n_sess, _val_date = sessions_until_valuation(fcp, as_of_ts)
         be_sum, be_single, be_combo = compute_breakeven_targets(
-            rows, totals["variation_jour"], ref_prices=_refs,
+            rows, totals["variation_jour"], ref_prices=_refs, n_sessions=_n_sess,
         )
         if not be_single.empty:
             lim = be_sum["daily_limit"]
+            n_s = be_sum["n_sessions"]
+            lim_tot = be_sum["plafond_cumule"]
+            if n_s > 1:
+                horizon = (f"{n_s} séances d'ici la valorisation du "
+                           f"{weekday_label(_val_date.weekday())} "
+                           f"{_val_date.strftime('%d/%m/%Y')}")
+                plafond_txt = f"+{lim_tot*100:.1f}% en {n_s} séances"
+            else:
+                horizon = "la séance"
+                plafond_txt = f"+{lim*100:.1f}% sur la séance"
             fmt_px = lambda v: f"{v:,.0f}".replace(",", " ")
             c4.caption(
                 f"🎯 Hausse uniforme nécessaire : "
@@ -917,6 +930,14 @@ if page == "📈 Tableau de bord":
                 f"(perte à combler : {fmt_xof(be_sum['perte'])})",
                 expanded=False,
             ):
+                if is_weekly_fcp(fcp):
+                    st.caption(
+                        f"📅 FCP hebdomadaire : la perte est mesurée depuis la "
+                        f"dernière valorisation ({prev_date.strftime('%d/%m/%Y')}). "
+                        f"Horizon de rattrapage : **{horizon}**, soit une hausse "
+                        f"maximale de **{plafond_txt}** par titre (limite BRVM "
+                        f"de +{lim*100:.1f}% par séance, cumulée)."
+                    )
                 m1, m2, m3 = st.columns(3)
                 m1.metric(
                     "Hausse uniforme nécessaire",
@@ -928,16 +949,14 @@ if page == "📈 Tableau de bord":
                     "Titres capables seuls",
                     f"{be_sum['n_titres_seuls_atteignables']} / {len(be_single)}",
                     help="Titres dont la hausse, à elle seule, compenserait la "
-                         f"perte sans dépasser la limite BRVM de +{lim*100:.1f}% "
-                         "de la séance.",
+                         f"perte sans dépasser la limite BRVM ({plafond_txt}).",
                 )
                 f_part = be_sum["part_baisse_regagnee"]
                 m3.metric(
                     "Baisse à regagner (titres en baisse)",
                     fmt_pct(f_part) if f_part is not None else "Impossible",
-                    help="Part de leur baisse du jour que chaque titre en baisse "
-                         "doit regagner (scénario combiné, dans la limite de "
-                         "la séance).",
+                    help="Part de sa baisse que chaque titre en baisse doit "
+                         f"regagner (scénario combiné, dans la limite : {plafond_txt}).",
                 )
 
                 # ── Scénario combiné : titres en baisse ──────────────────
@@ -945,14 +964,14 @@ if page == "📈 Tableau de bord":
                 if be_sum["n_titres_seuls_atteignables"] == 0:
                     st.warning(
                         f"Aucun titre ne peut compenser seul la perte sans dépasser "
-                        f"+{lim*100:.1f}% sur la séance : il faut une combinaison."
+                        f"{plafond_txt} : il faut une combinaison."
                     )
                 if not be_sum["possible_en_une_seance"]:
                     st.error(
-                        f"Même avec toutes les lignes à la limite de +{lim*100:.1f}%, "
+                        f"Même avec toutes les lignes à la limite ({plafond_txt}), "
                         f"seuls {fmt_xof(be_sum['couvert'])} sur "
-                        f"{fmt_xof(be_sum['perte'])} peuvent être regagnés sur la "
-                        "séance : retour à l'équilibre impossible en un jour."
+                        f"{fmt_xof(be_sum['perte'])} peuvent être regagnés sur "
+                        f"{horizon} : retour à l'équilibre impossible."
                     )
                 elif be_sum["complement_necessaire"]:
                     st.info(
@@ -963,16 +982,18 @@ if page == "📈 Tableau de bord":
                 elif f_part is not None and f_part <= 1:
                     st.caption(
                         f"Chaque titre en baisse regagne **{fmt_pct(f_part)}** de sa "
-                        "baisse du jour. Un titre qui atteindrait la limite de la "
-                        "séance est plafonné et les autres compensent."
+                        f"baisse. Un titre qui atteindrait sa limite ({plafond_txt}) "
+                        "est plafonné et les autres compensent."
                     )
                 else:
                     st.caption(
-                        "Regagner toute leur baisse ne suffit pas (frais et achats "
-                        "de la période pèsent aussi sur la variation) : les titres "
-                        f"en baisse doivent remonter de **{fmt_pct(f_part)}** de "
-                        "leur baisse, donc au-dessus de leur cours de la veille, "
-                        "dans la limite de la séance."
+                        "Pour revenir à l'équilibre, les titres en baisse doivent "
+                        f"regagner **{fmt_pct(f_part)}** de leur baisse, donc "
+                        "repasser au-dessus de leur cours de référence"
+                        + (" (une partie des titres étant bloquée à sa limite)"
+                           if be_combo["au_plafond"].any() else
+                           " (frais et achats de la période pèsent aussi sur la variation)")
+                        + f", dans leur limite ({plafond_txt})."
                     )
                 if not be_combo.empty:
                     disp_combo = pd.DataFrame({
@@ -986,7 +1007,7 @@ if page == "📈 Tableau de bord":
                         "Baisse regagnée": be_combo["part_regagnee"].map(fmt_pct),
                         "Gain FCFA": be_combo["contribution"].map(
                             lambda v: fmt_xof(v, signed=True)),
-                        "Plafond séance": be_combo["plafond"].map(fmt_px),
+                        "Plafond": be_combo["plafond"].map(fmt_px),
                         "": be_combo["au_plafond"].map(lambda b: "🔺 plafond" if b else ""),
                     })
                     render_table(disp_combo, height=360,
@@ -1002,15 +1023,16 @@ if page == "📈 Tableau de bord":
                     "Cours cible (titre seul)": be_single["cours_cible_seul"].map(fmt_px),
                     "Hausse nécessaire": be_single["hausse_seule"].map(
                         lambda v: fmt_pct(v, signed=True)),
-                    "Plafond séance": be_single["plafond"].map(fmt_px),
+                    "Plafond": be_single["plafond"].map(fmt_px),
                     "Possible": be_single["atteignable"].map(
                         lambda b: "✅" if b else "❌"),
                     "Cours cible (hausse uniforme)": be_single["cours_cible_uniforme"].map(fmt_px),
                 })
                 render_table(disp_be, height=360, color_cols=["Hausse nécessaire"])
                 st.caption(
-                    f"**Plafond séance** : cours de référence de la séance × "
-                    f"(1 + {lim*100:.1f}%), limite BRVM de variation journalière. "
+                    f"**Plafond** : cours de référence × (1 + {lim*100:.1f}%)"
+                    + (f" puissance {n_s} ({n_s} séances avant la valorisation)" if n_s > 1 else "")
+                    + ", limite BRVM de variation par séance. "
                     "**Gain FCFA** : quantité × (cours cible − cours actuel) ; la "
                     "somme des gains égale la perte à combler. Quantités détenues "
                     "supposées inchangées."
