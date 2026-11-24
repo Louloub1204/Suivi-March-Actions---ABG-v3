@@ -1434,68 +1434,143 @@ def compute_transaction_analysis(
 BRVM_DAILY_LIMIT = 0.075
 
 
+def _waterfill(base: np.ndarray, room: np.ndarray, target: float) -> tuple[float, np.ndarray]:
+    """Find the common factor f with  Σ base·min(f, room) = target.
+
+    base : gain per unit of f for each line (FCFA)
+    room : maximum f allowed for each line (its session cap)
+    Returns (f, f_applied per line). If even every line at its cap cannot
+    reach the target, f = inf and every line is at its cap.
+    """
+    if target <= 0 or len(base) == 0:
+        return 0.0, np.zeros(len(base))
+    if float((base * room).sum()) < target:
+        return float("inf"), room.copy()
+    order = np.argsort(room)
+    r_sorted, b_sorted = room[order], base[order]
+    done = 0.0                      # gain from lines already capped
+    free = float(b_sorted.sum())    # base of lines not yet capped
+    f = 0.0
+    for k in range(len(r_sorted)):
+        f_try = (target - done) / free if free > 0 else float("inf")
+        if f_try <= r_sorted[k]:
+            f = f_try
+            break
+        done += b_sorted[k] * r_sorted[k]
+        free -= b_sorted[k]
+    return f, np.minimum(f, room)
+
+
 def compute_breakeven_targets(
     rows: pd.DataFrame,
     variation_jour: float,
+    ref_prices: dict[str, float] | None = None,
     daily_limit: float = BRVM_DAILY_LIMIT,
-) -> tuple[dict, pd.DataFrame]:
+) -> tuple[dict, pd.DataFrame, pd.DataFrame]:
     """Target prices that would bring a negative daily variation back to zero.
 
-    `rows` is the DataFrame returned by build_dashboard. The loss to recover
-    is L = −variation_jour (only when variation_jour < 0). Three readings:
+    `rows` is the DataFrame returned by build_dashboard; the loss to recover
+    is L = −variation_jour. Raising a title's price by Δ improves the day
+    P&L by quantité × Δ.
 
-      • Uniform rise : every line rises by the same %, i.e. L / valorisation.
-      • Single line  : one title alone recovers the loss.
-            cours_cible = cours + L / quantité
-            hausse      = L / valorisation_ligne
-        flagged reachable in one session if hausse ≤ daily_limit.
-      • Minimal scenario : fewest titles at the daily limit (largest lines
-        first) whose combined rise covers L.
+    Session cap: on the BRVM a title cannot close above its reference price
+    × (1 + daily_limit). `ref_prices` gives that reference (last close before
+    the session); the title's `prev_close` is used when missing.
 
-    Returns (summary, table). The table has one row per active line, sorted
-    by the rise needed (easiest lever first). Empty table when there is
-    nothing to recover.
+    Returns (summary, single, combo):
+      • single : one title alone recovers L  (cours + L / quantité), flagged
+                 reachable when that price stays under the session cap.
+      • combo  : combination over the titles DOWN today. Each one regains the
+                 same share f of its own drop (cours actuel → cours veille),
+                 without exceeding its session cap; lines that hit their cap
+                 hand the rest to the others. If the titles down today are not
+                 enough, the other lines are added (same %, within their cap).
     """
-    empty = ({"perte": 0.0}, pd.DataFrame())
+    no = ({"perte": 0.0}, pd.DataFrame(), pd.DataFrame())
     if rows is None or rows.empty or variation_jour is None or variation_jour >= 0:
-        return empty
-
+        return no
     act = rows[(rows["quantite"] > 0) & (rows["close"] > 0)].copy()
     if act.empty:
-        return empty
+        return no
+    ref_prices = ref_prices or {}
 
     perte = float(-variation_jour)
     valo = float(act["valorisation"].sum())
-    hausse_uniforme = perte / valo if valo else float("nan")
+    act["ref"] = [
+        float(ref_prices.get(t) or p or c)
+        for t, p, c in zip(act["ticker"], act["prev_close"], act["close"])
+    ]
+    act["plafond"] = act["ref"] * (1 + daily_limit)
+    act["marge"] = (act["plafond"] - act["close"]).clip(lower=0)  # FCFA / action
 
+    # ── Uniform rise and single-title targets ─────────────────────────────
+    hausse_uniforme = perte / valo if valo else float("nan")
     act["hausse_seule"] = perte / act["valorisation"]
     act["cours_cible_seul"] = act["close"] + perte / act["quantite"]
+    act["atteignable"] = act["cours_cible_seul"] <= act["plafond"] + 1e-9
     act["cours_cible_uniforme"] = act["close"] * (1 + hausse_uniforme)
-    act["atteignable"] = act["hausse_seule"] <= daily_limit
-
-    # Minimal scenario: largest lines first, each capped at the daily limit.
-    cumul, titres = 0.0, []
-    for _, r in act.sort_values("valorisation", ascending=False).iterrows():
-        if cumul >= perte:
-            break
-        cumul += float(r["valorisation"]) * daily_limit
-        titres.append(r["ticker"])
-    scenario_possible = cumul >= perte
-
-    table = (
+    single = (
         act[["ticker", "quantite", "close", "poids", "cours_cible_seul",
-             "hausse_seule", "atteignable", "cours_cible_uniforme"]]
-        .sort_values("hausse_seule")
-        .reset_index(drop=True)
+             "hausse_seule", "atteignable", "cours_cible_uniforme", "plafond"]]
+        .sort_values("hausse_seule").reset_index(drop=True)
     )
+
+    # ── Combination over titles down today ────────────────────────────────
+    act["baisse_unit"] = (act["prev_close"] - act["close"]).clip(lower=0)
+    down = act[act["baisse_unit"] > 0]
+    q, d, m = (down["quantite"].to_numpy(float), down["baisse_unit"].to_numpy(float),
+               down["marge"].to_numpy(float))
+    # unit of f = the title's own drop; cap = margin expressed in drops
+    f, f_i = _waterfill(q * d, np.divide(m, d, out=np.zeros_like(m), where=d > 0), perte)
+    delta_down = f_i * d
+    gain_down = float((q * delta_down).sum())
+
+    # Not enough with titles down → other lines, same % rise, within cap
+    reste = max(perte - gain_down, 0.0)
+    others = act[act["baisse_unit"] <= 0]
+    delta_oth = np.zeros(len(others))
+    if reste > 1e-6 and len(others):
+        qo, co, mo = (others["quantite"].to_numpy(float), others["close"].to_numpy(float),
+                      others["marge"].to_numpy(float))
+        _, g = _waterfill(qo * co, np.divide(mo, co, out=np.zeros_like(mo), where=co > 0), reste)
+        delta_oth = g * co
+    gain_oth = float((others["quantite"].to_numpy(float) * delta_oth).sum()) if len(others) else 0.0
+
+    combo = pd.concat([
+        pd.DataFrame({
+            "ticker": down["ticker"].to_numpy(), "groupe": "En baisse",
+            "quantite": q, "prev_close": down["prev_close"].to_numpy(float),
+            "close": down["close"].to_numpy(float), "delta": delta_down,
+            "part_regagnee": f_i, "plafond": down["plafond"].to_numpy(float),
+        }),
+        pd.DataFrame({
+            "ticker": others["ticker"].to_numpy(), "groupe": "Complément",
+            "quantite": others["quantite"].to_numpy(float),
+            "prev_close": others["prev_close"].to_numpy(float),
+            "close": others["close"].to_numpy(float), "delta": delta_oth,
+            "part_regagnee": np.nan, "plafond": others["plafond"].to_numpy(float),
+        }),
+    ], ignore_index=True)
+    combo = combo[combo["delta"] > 1e-9].copy()
+    combo["cours_cible"] = combo["close"] + combo["delta"]
+    combo["hausse"] = combo["delta"] / combo["close"]
+    combo["contribution"] = combo["quantite"] * combo["delta"]
+    combo["au_plafond"] = combo["cours_cible"] >= combo["plafond"] - 1e-6
+    combo = combo.sort_values(["groupe", "contribution"], ascending=[False, False]) \
+                 .reset_index(drop=True)
+
+    couvert = gain_down + gain_oth
     summary = {
         "perte": perte,
         "valorisation": valo,
         "hausse_uniforme": hausse_uniforme,
-        "uniforme_atteignable": hausse_uniforme <= daily_limit,
         "n_titres_seuls_atteignables": int(act["atteignable"].sum()),
-        "scenario_titres": titres if scenario_possible else [],
-        "scenario_possible": scenario_possible,
+        "n_titres_en_baisse": int(len(down)),
+        "part_baisse_regagnee": None if np.isinf(f) else float(f),
+        "baisses_suffisent": not np.isinf(f),
+        "complement_necessaire": reste > 1e-6,
+        "couvert": couvert,
+        "possible_en_une_seance": couvert >= perte - 1e-3,
         "daily_limit": daily_limit,
     }
-    return summary, table
+    return summary, single, combo

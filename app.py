@@ -897,10 +897,17 @@ if page == "📈 Tableau de bord":
 
     # ── Retour à l'équilibre (variation du jour négative) ───────────────────
     if totals["variation_jour"] < 0 and not rows.empty:
-        from portfolio import compute_breakeven_targets
-        be_sum, be_tab = compute_breakeven_targets(rows, totals["variation_jour"])
-        if not be_tab.empty:
+        from portfolio import compute_breakeven_targets, get_price_on
+        # Reference price of the session (last close before the date) for
+        # the BRVM ±7.5% band; differs from prev_close for weekly FCPs.
+        _ref_day = as_of_ts - pd.Timedelta(days=1)
+        _refs = {t: get_price_on(prices, t, _ref_day) for t in rows["ticker"]}
+        be_sum, be_single, be_combo = compute_breakeven_targets(
+            rows, totals["variation_jour"], ref_prices=_refs,
+        )
+        if not be_single.empty:
             lim = be_sum["daily_limit"]
+            fmt_px = lambda v: f"{v:,.0f}".replace(",", " ")
             c4.caption(
                 f"🎯 Hausse uniforme nécessaire : "
                 f"**{fmt_pct(be_sum['hausse_uniforme'], signed=True)}**"
@@ -914,59 +921,99 @@ if page == "📈 Tableau de bord":
                 m1.metric(
                     "Hausse uniforme nécessaire",
                     fmt_pct(be_sum["hausse_uniforme"], signed=True),
-                    help="Hausse identique de toutes les lignes du portefeuille "
-                         "qui compenserait exactement la perte du jour.",
+                    help="Hausse identique de toutes les lignes qui compenserait "
+                         "exactement la perte du jour.",
                 )
                 m2.metric(
-                    f"Titres capables seuls (≤ {lim*100:.1f}%)",
-                    f"{be_sum['n_titres_seuls_atteignables']} / {len(be_tab)}",
-                    help="Nombre de titres dont la hausse, à elle seule, "
-                         "compenserait la perte en une séance (limite BRVM "
-                         f"de ±{lim*100:.1f}% par séance).",
+                    "Titres capables seuls",
+                    f"{be_sum['n_titres_seuls_atteignables']} / {len(be_single)}",
+                    help="Titres dont la hausse, à elle seule, compenserait la "
+                         f"perte sans dépasser la limite BRVM de +{lim*100:.1f}% "
+                         "de la séance.",
                 )
-                if be_sum["scenario_possible"]:
-                    m3.metric(
-                        f"Titres minimum à +{lim*100:.1f}%",
-                        str(len(be_sum["scenario_titres"])),
-                        help="Plus petit nombre de lignes (les plus grosses) qui, "
-                             "en atteignant la limite de hausse d'une séance, "
-                             "compensent la perte.",
+                f_part = be_sum["part_baisse_regagnee"]
+                m3.metric(
+                    "Baisse à regagner (titres en baisse)",
+                    fmt_pct(f_part) if f_part is not None else "Impossible",
+                    help="Part de leur baisse du jour que chaque titre en baisse "
+                         "doit regagner (scénario combiné, dans la limite de "
+                         "la séance).",
+                )
+
+                # ── Scénario combiné : titres en baisse ──────────────────
+                st.markdown("**Scénario combiné — cours cibles des titres en baisse**")
+                if be_sum["n_titres_seuls_atteignables"] == 0:
+                    st.warning(
+                        f"Aucun titre ne peut compenser seul la perte sans dépasser "
+                        f"+{lim*100:.1f}% sur la séance : il faut une combinaison."
                     )
+                if not be_sum["possible_en_une_seance"]:
+                    st.error(
+                        f"Même avec toutes les lignes à la limite de +{lim*100:.1f}%, "
+                        f"seuls {fmt_xof(be_sum['couvert'])} sur "
+                        f"{fmt_xof(be_sum['perte'])} peuvent être regagnés sur la "
+                        "séance : retour à l'équilibre impossible en un jour."
+                    )
+                elif be_sum["complement_necessaire"]:
+                    st.info(
+                        "Les titres en baisse, même au plafond, ne suffisent pas : "
+                        "un complément est demandé aux autres lignes (même "
+                        "pourcentage de hausse, dans leur limite)."
+                    )
+                elif f_part is not None and f_part <= 1:
                     st.caption(
-                        "Scénario minimal (plus grosses lignes à la limite de "
-                        f"+{lim*100:.1f}%) : " + ", ".join(be_sum["scenario_titres"])
+                        f"Chaque titre en baisse regagne **{fmt_pct(f_part)}** de sa "
+                        "baisse du jour. Un titre qui atteindrait la limite de la "
+                        "séance est plafonné et les autres compensent."
                     )
                 else:
-                    m3.metric(f"Titres minimum à +{lim*100:.1f}%", "Impossible")
                     st.caption(
-                        "Même avec toutes les lignes à la limite de "
-                        f"+{lim*100:.1f}%, la perte ne peut pas être compensée "
-                        "en une seule séance."
+                        "Regagner toute leur baisse ne suffit pas (frais et achats "
+                        "de la période pèsent aussi sur la variation) : les titres "
+                        f"en baisse doivent remonter de **{fmt_pct(f_part)}** de "
+                        "leur baisse, donc au-dessus de leur cours de la veille, "
+                        "dans la limite de la séance."
                     )
+                if not be_combo.empty:
+                    disp_combo = pd.DataFrame({
+                        "Titre": be_combo["ticker"],
+                        "Groupe": be_combo["groupe"],
+                        "Cours veille": be_combo["prev_close"].map(fmt_px),
+                        "Cours actuel": be_combo["close"].map(fmt_px),
+                        "Cours cible": be_combo["cours_cible"].map(fmt_px),
+                        "Hausse nécessaire": be_combo["hausse"].map(
+                            lambda v: fmt_pct(v, signed=True)),
+                        "Baisse regagnée": be_combo["part_regagnee"].map(fmt_pct),
+                        "Gain FCFA": be_combo["contribution"].map(
+                            lambda v: fmt_xof(v, signed=True)),
+                        "Plafond séance": be_combo["plafond"].map(fmt_px),
+                        "": be_combo["au_plafond"].map(lambda b: "🔺 plafond" if b else ""),
+                    })
+                    render_table(disp_combo, height=360,
+                                 color_cols=["Hausse nécessaire", "Gain FCFA"])
 
+                # ── Titre seul ────────────────────────────────────────────
+                st.markdown("**Titre par titre — cours cible si ce titre compensait seul**")
                 disp_be = pd.DataFrame({
-                    "Titre": be_tab["ticker"],
-                    "Qté": be_tab["quantite"].map(
-                        lambda v: f"{v:,.0f}".replace(",", " ")),
-                    "Poids": be_tab["poids"].map(fmt_pct),
-                    "Cours actuel": be_tab["close"].map(
-                        lambda v: f"{v:,.0f}".replace(",", " ")),
-                    "Cours cible (titre seul)": be_tab["cours_cible_seul"].map(
-                        lambda v: f"{v:,.0f}".replace(",", " ")),
-                    "Hausse nécessaire": be_tab["hausse_seule"].map(
+                    "Titre": be_single["ticker"],
+                    "Qté": be_single["quantite"].map(fmt_px),
+                    "Poids": be_single["poids"].map(fmt_pct),
+                    "Cours actuel": be_single["close"].map(fmt_px),
+                    "Cours cible (titre seul)": be_single["cours_cible_seul"].map(fmt_px),
+                    "Hausse nécessaire": be_single["hausse_seule"].map(
                         lambda v: fmt_pct(v, signed=True)),
-                    "En 1 séance": be_tab["atteignable"].map(
+                    "Plafond séance": be_single["plafond"].map(fmt_px),
+                    "Possible": be_single["atteignable"].map(
                         lambda b: "✅" if b else "❌"),
-                    "Cours cible (hausse uniforme)": be_tab["cours_cible_uniforme"].map(
-                        lambda v: f"{v:,.0f}".replace(",", " ")),
+                    "Cours cible (hausse uniforme)": be_single["cours_cible_uniforme"].map(fmt_px),
                 })
-                render_table(disp_be, height=420, color_cols=["Hausse nécessaire"])
+                render_table(disp_be, height=360, color_cols=["Hausse nécessaire"])
                 st.caption(
-                    "**Titre seul** : cours que ce titre devrait atteindre, les "
-                    "autres restant inchangés, pour compenser à lui seul la perte "
-                    "(cours actuel + perte / quantité). **Hausse uniforme** : "
-                    "cours de chaque titre si toutes les lignes montaient du même "
-                    "pourcentage. Tri : du levier le plus accessible au moins accessible."
+                    f"**Plafond séance** : cours de référence de la séance × "
+                    f"(1 + {lim*100:.1f}%), limite BRVM de variation journalière. "
+                    "**Gain FCFA** : quantité × (cours cible − cours actuel) ; la "
+                    "somme des gains égale la perte à combler. Quantités détenues "
+                    "supposées inchangées."
                 )
 
     st.divider()
