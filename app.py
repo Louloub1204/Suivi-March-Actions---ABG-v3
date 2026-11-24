@@ -941,7 +941,7 @@ if page == "📈 Tableau de bord":
                 )
 
                 # ── Scénario combiné : titres en baisse ──────────────────
-                st.markdown("**Scénario combiné — cours cibles des titres en baisse**")
+                st.markdown("**Scénario combiné - cours cibles des titres en baisse**")
                 if be_sum["n_titres_seuls_atteignables"] == 0:
                     st.warning(
                         f"Aucun titre ne peut compenser seul la perte sans dépasser "
@@ -993,7 +993,7 @@ if page == "📈 Tableau de bord":
                                  color_cols=["Hausse nécessaire", "Gain FCFA"])
 
                 # ── Titre seul ────────────────────────────────────────────
-                st.markdown("**Titre par titre — cours cible si ce titre compensait seul**")
+                st.markdown("**Titre par titre - cours cible si ce titre compensait seul**")
                 disp_be = pd.DataFrame({
                     "Titre": be_single["ticker"],
                     "Qté": be_single["quantite"].map(fmt_px),
