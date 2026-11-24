@@ -1424,3 +1424,78 @@ def compute_transaction_analysis(
         })
 
     return pd.DataFrame(rows).sort_values("Date")
+
+
+# ---------------------------------------------------------------------------
+# Break-even: target prices needed to offset a negative daily variation
+# ---------------------------------------------------------------------------
+
+# Maximum daily price move allowed on the BRVM (±7.5% per session).
+BRVM_DAILY_LIMIT = 0.075
+
+
+def compute_breakeven_targets(
+    rows: pd.DataFrame,
+    variation_jour: float,
+    daily_limit: float = BRVM_DAILY_LIMIT,
+) -> tuple[dict, pd.DataFrame]:
+    """Target prices that would bring a negative daily variation back to zero.
+
+    `rows` is the DataFrame returned by build_dashboard. The loss to recover
+    is L = −variation_jour (only when variation_jour < 0). Three readings:
+
+      • Uniform rise : every line rises by the same %, i.e. L / valorisation.
+      • Single line  : one title alone recovers the loss.
+            cours_cible = cours + L / quantité
+            hausse      = L / valorisation_ligne
+        flagged reachable in one session if hausse ≤ daily_limit.
+      • Minimal scenario : fewest titles at the daily limit (largest lines
+        first) whose combined rise covers L.
+
+    Returns (summary, table). The table has one row per active line, sorted
+    by the rise needed (easiest lever first). Empty table when there is
+    nothing to recover.
+    """
+    empty = ({"perte": 0.0}, pd.DataFrame())
+    if rows is None or rows.empty or variation_jour is None or variation_jour >= 0:
+        return empty
+
+    act = rows[(rows["quantite"] > 0) & (rows["close"] > 0)].copy()
+    if act.empty:
+        return empty
+
+    perte = float(-variation_jour)
+    valo = float(act["valorisation"].sum())
+    hausse_uniforme = perte / valo if valo else float("nan")
+
+    act["hausse_seule"] = perte / act["valorisation"]
+    act["cours_cible_seul"] = act["close"] + perte / act["quantite"]
+    act["cours_cible_uniforme"] = act["close"] * (1 + hausse_uniforme)
+    act["atteignable"] = act["hausse_seule"] <= daily_limit
+
+    # Minimal scenario: largest lines first, each capped at the daily limit.
+    cumul, titres = 0.0, []
+    for _, r in act.sort_values("valorisation", ascending=False).iterrows():
+        if cumul >= perte:
+            break
+        cumul += float(r["valorisation"]) * daily_limit
+        titres.append(r["ticker"])
+    scenario_possible = cumul >= perte
+
+    table = (
+        act[["ticker", "quantite", "close", "poids", "cours_cible_seul",
+             "hausse_seule", "atteignable", "cours_cible_uniforme"]]
+        .sort_values("hausse_seule")
+        .reset_index(drop=True)
+    )
+    summary = {
+        "perte": perte,
+        "valorisation": valo,
+        "hausse_uniforme": hausse_uniforme,
+        "uniforme_atteignable": hausse_uniforme <= daily_limit,
+        "n_titres_seuls_atteignables": int(act["atteignable"].sum()),
+        "scenario_titres": titres if scenario_possible else [],
+        "scenario_possible": scenario_possible,
+        "daily_limit": daily_limit,
+    }
+    return summary, table

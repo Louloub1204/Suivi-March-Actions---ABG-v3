@@ -895,6 +895,80 @@ if page == "📈 Tableau de bord":
         delta=fmt_pct(totals["variation_pct"]),
     )
 
+    # ── Retour à l'équilibre (variation du jour négative) ───────────────────
+    if totals["variation_jour"] < 0 and not rows.empty:
+        from portfolio import compute_breakeven_targets
+        be_sum, be_tab = compute_breakeven_targets(rows, totals["variation_jour"])
+        if not be_tab.empty:
+            lim = be_sum["daily_limit"]
+            c4.caption(
+                f"🎯 Hausse uniforme nécessaire : "
+                f"**{fmt_pct(be_sum['hausse_uniforme'], signed=True)}**"
+            )
+            with st.expander(
+                f"🎯 Cours cibles pour ramener le fonds à l'équilibre "
+                f"(perte à combler : {fmt_xof(be_sum['perte'])})",
+                expanded=False,
+            ):
+                m1, m2, m3 = st.columns(3)
+                m1.metric(
+                    "Hausse uniforme nécessaire",
+                    fmt_pct(be_sum["hausse_uniforme"], signed=True),
+                    help="Hausse identique de toutes les lignes du portefeuille "
+                         "qui compenserait exactement la perte du jour.",
+                )
+                m2.metric(
+                    f"Titres capables seuls (≤ {lim*100:.1f}%)",
+                    f"{be_sum['n_titres_seuls_atteignables']} / {len(be_tab)}",
+                    help="Nombre de titres dont la hausse, à elle seule, "
+                         "compenserait la perte en une séance (limite BRVM "
+                         f"de ±{lim*100:.1f}% par séance).",
+                )
+                if be_sum["scenario_possible"]:
+                    m3.metric(
+                        f"Titres minimum à +{lim*100:.1f}%",
+                        str(len(be_sum["scenario_titres"])),
+                        help="Plus petit nombre de lignes (les plus grosses) qui, "
+                             "en atteignant la limite de hausse d'une séance, "
+                             "compensent la perte.",
+                    )
+                    st.caption(
+                        "Scénario minimal (plus grosses lignes à la limite de "
+                        f"+{lim*100:.1f}%) : " + ", ".join(be_sum["scenario_titres"])
+                    )
+                else:
+                    m3.metric(f"Titres minimum à +{lim*100:.1f}%", "Impossible")
+                    st.caption(
+                        "Même avec toutes les lignes à la limite de "
+                        f"+{lim*100:.1f}%, la perte ne peut pas être compensée "
+                        "en une seule séance."
+                    )
+
+                disp_be = pd.DataFrame({
+                    "Titre": be_tab["ticker"],
+                    "Qté": be_tab["quantite"].map(
+                        lambda v: f"{v:,.0f}".replace(",", " ")),
+                    "Poids": be_tab["poids"].map(fmt_pct),
+                    "Cours actuel": be_tab["close"].map(
+                        lambda v: f"{v:,.0f}".replace(",", " ")),
+                    "Cours cible (titre seul)": be_tab["cours_cible_seul"].map(
+                        lambda v: f"{v:,.0f}".replace(",", " ")),
+                    "Hausse nécessaire": be_tab["hausse_seule"].map(
+                        lambda v: fmt_pct(v, signed=True)),
+                    "En 1 séance": be_tab["atteignable"].map(
+                        lambda b: "✅" if b else "❌"),
+                    "Cours cible (hausse uniforme)": be_tab["cours_cible_uniforme"].map(
+                        lambda v: f"{v:,.0f}".replace(",", " ")),
+                })
+                render_table(disp_be, height=420, color_cols=["Hausse nécessaire"])
+                st.caption(
+                    "**Titre seul** : cours que ce titre devrait atteindre, les "
+                    "autres restant inchangés, pour compenser à lui seul la perte "
+                    "(cours actuel + perte / quantité). **Hausse uniforme** : "
+                    "cours de chaque titre si toutes les lignes montaient du même "
+                    "pourcentage. Tri : du levier le plus accessible au moins accessible."
+                )
+
     st.divider()
 
     if rows.empty:
