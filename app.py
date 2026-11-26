@@ -905,8 +905,17 @@ if page == "📈 Tableau de bord":
         _ref_day = as_of_ts - pd.Timedelta(days=1)
         _refs = {t: get_price_on(prices, t, _ref_day) for t in rows["ticker"]}
         _n_sess, _val_date = sessions_until_valuation(fcp, as_of_ts)
+        # Target tracking of this fund: ACHAT / VENTE per title, to favour
+        # titles to buy in the recovery combination (empty if no targets).
+        try:
+            _trk = _cached_tracking(fcp, as_of_ts.isoformat(), _data_hash())
+        except Exception:
+            _trk = pd.DataFrame()
+        _prios = (dict(zip(_trk["ticker"], _trk["sens"]))
+                  if not _trk.empty and "sens" in _trk.columns else {})
         be_sum, be_single, be_combo = compute_breakeven_targets(
             rows, totals["variation_jour"], ref_prices=_refs, n_sessions=_n_sess,
+            priorities=_prios,
         )
         if not be_single.empty:
             lim = be_sum["daily_limit"]
@@ -921,6 +930,8 @@ if page == "📈 Tableau de bord":
                 horizon = "la séance"
                 plafond_txt = f"+{lim*100:.1f}% sur la séance"
             fmt_px = lambda v: f"{v:,.0f}".replace(",", " ")
+            _wts = be_sum["weights"]
+            _prio_lbl = {"ACHAT": "🟢 Achat", "NEUTRE": "⚪ Neutre", "VENTE": "🔴 Vente"}
             c4.caption(
                 f"🎯 Hausse uniforme nécessaire : "
                 f"**{fmt_pct(be_sum['hausse_uniforme'], signed=True)}**"
@@ -952,9 +963,12 @@ if page == "📈 Tableau de bord":
                          f"perte sans dépasser la limite BRVM ({plafond_txt}).",
                 )
                 f_part = be_sum["part_baisse_regagnee"]
+                _k0 = (be_sum["priorites_presentes"] or ["NEUTRE"])[0]
+                _lbl0 = {"ACHAT": "titres à l'achat", "NEUTRE": "titres en baisse",
+                         "VENTE": "titres à la vente"}[_k0]
                 m3.metric(
-                    "Baisse à regagner (titres en baisse)",
-                    fmt_pct(f_part) if f_part is not None else "Impossible",
+                    f"Baisse à regagner ({_lbl0})",
+                    fmt_pct(f_part * _wts[_k0]) if f_part is not None else "Impossible",
                     help="Part de sa baisse que chaque titre en baisse doit "
                          f"regagner (scénario combiné, dans la limite : {plafond_txt}).",
                 )
@@ -979,25 +993,33 @@ if page == "📈 Tableau de bord":
                         "un complément est demandé aux autres lignes (même "
                         "pourcentage de hausse, dans leur limite)."
                     )
-                elif f_part is not None and f_part <= 1:
+                else:
+                    _parts = " ; ".join(
+                        f"{_prio_lbl[k]} : **{fmt_pct(f_part * _wts[k])}**"
+                        for k in be_sum["priorites_presentes"]
+                    )
                     st.caption(
-                        f"Chaque titre en baisse regagne **{fmt_pct(f_part)}** de sa "
-                        f"baisse. Un titre qui atteindrait sa limite ({plafond_txt}) "
-                        "est plafonné et les autres compensent."
+                        "Part de sa baisse que chaque titre en baisse doit regagner : "
+                        f"{_parts}. Un titre qui atteindrait sa limite ({plafond_txt}) "
+                        "est plafonné et les autres compensent. Au-delà de 100%, le "
+                        "titre repasse au-dessus de son cours de référence."
+                    )
+                if be_sum["suivi_cibles"]:
+                    st.caption(
+                        "Priorité issue du **suivi des cibles** du fonds : les titres "
+                        f"à l'achat portent {_wts['ACHAT']:g} fois plus de remontée "
+                        f"qu'un titre neutre, ceux à la vente {_wts['VENTE']:g} fois "
+                        "(ils contribuent, mais moins)."
                     )
                 else:
                     st.caption(
-                        "Pour revenir à l'équilibre, les titres en baisse doivent "
-                        f"regagner **{fmt_pct(f_part)}** de leur baisse, donc "
-                        "repasser au-dessus de leur cours de référence"
-                        + (" (une partie des titres étant bloquée à sa limite)"
-                           if be_combo["au_plafond"].any() else
-                           " (frais et achats de la période pèsent aussi sur la variation)")
-                        + f", dans leur limite ({plafond_txt})."
+                        "Aucune cible définie pour ce fonds : tous les titres ont la "
+                        "même priorité."
                     )
                 if not be_combo.empty:
                     disp_combo = pd.DataFrame({
                         "Titre": be_combo["ticker"],
+                        "Suivi cibles": be_combo["priorite"].map(_prio_lbl),
                         "Groupe": be_combo["groupe"],
                         "Cours veille": be_combo["prev_close"].map(fmt_px),
                         "Cours actuel": be_combo["close"].map(fmt_px),
@@ -1017,6 +1039,7 @@ if page == "📈 Tableau de bord":
                 st.markdown("**Titre par titre - cours cible si ce titre compensait seul**")
                 disp_be = pd.DataFrame({
                     "Titre": be_single["ticker"],
+                    "Suivi cibles": be_single["priorite"].map(_prio_lbl),
                     "Qté": be_single["quantite"].map(fmt_px),
                     "Poids": be_single["poids"].map(fmt_pct),
                     "Cours actuel": be_single["close"].map(fmt_px),

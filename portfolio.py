@@ -1433,6 +1433,16 @@ def compute_transaction_analysis(
 # Maximum daily price move allowed on the BRVM (±7.5% per session).
 BRVM_DAILY_LIMIT = 0.075
 
+# Weight of each title in the break-even combination, from the fund's target
+# tracking (compute_tracking 'sens'): titles to BUY carry more of the rebound,
+# titles to SELL still help, but less.
+PRIORITY_WEIGHTS = {"ACHAT": 2.0, "NEUTRE": 1.0, "VENTE": 0.5}
+
+
+def _priority_of(sens) -> str:
+    s = str(sens or "").upper()
+    return s if s in ("ACHAT", "VENTE") else "NEUTRE"
+
 
 def _waterfill(base: np.ndarray, room: np.ndarray, target: float) -> tuple[float, np.ndarray]:
     """Find the common factor f with  Σ base·min(f, room) = target.
@@ -1467,6 +1477,8 @@ def compute_breakeven_targets(
     ref_prices: dict[str, float] | None = None,
     daily_limit: float = BRVM_DAILY_LIMIT,
     n_sessions: int = 1,
+    priorities: dict[str, str] | None = None,
+    weights: dict[str, float] | None = None,
 ) -> tuple[dict, pd.DataFrame, pd.DataFrame]:
     """Target prices that would bring a negative daily variation back to zero.
 
@@ -1484,11 +1496,16 @@ def compute_breakeven_targets(
     Returns (summary, single, combo):
       • single : one title alone recovers L  (cours + L / quantité), flagged
                  reachable when that price stays under the session cap.
-      • combo  : combination over the titles DOWN today. Each one regains the
-                 same share f of its own drop (cours actuel → cours veille),
-                 without exceeding its session cap; lines that hit their cap
-                 hand the rest to the others. If the titles down today are not
-                 enough, the other lines are added (same %, within their cap).
+      • combo  : combination over the titles DOWN today. Each one regains a
+                 share of its own drop (cours actuel → cours veille) equal to
+                 f × its priority weight, without exceeding its cap; lines
+                 that hit their cap hand the rest to the others. If the titles
+                 down today are not enough, the other lines are added
+                 (weighted % rise, within their cap).
+
+    Priority comes from the fund's target tracking (`priorities`:
+    {ticker: sens}): ACHAT ×2, neutral ×1, VENTE ×0.5 (PRIORITY_WEIGHTS).
+    Titles to buy are favoured; titles to sell still contribute, but less.
     """
     no = ({"perte": 0.0}, pd.DataFrame(), pd.DataFrame())
     if rows is None or rows.empty or variation_jour is None or variation_jour >= 0:
@@ -1497,6 +1514,8 @@ def compute_breakeven_targets(
     if act.empty:
         return no
     ref_prices = ref_prices or {}
+    priorities = priorities or {}
+    weights = {**PRIORITY_WEIGHTS, **(weights or {})}
 
     perte = float(-variation_jour)
     valo = float(act["valorisation"].sum())
@@ -1507,6 +1526,8 @@ def compute_breakeven_targets(
     n_sessions = max(int(n_sessions), 1)
     act["plafond"] = act["ref"] * (1 + daily_limit) ** n_sessions
     act["marge"] = (act["plafond"] - act["close"]).clip(lower=0)  # FCFA / action
+    act["priorite"] = [_priority_of(priorities.get(t)) for t in act["ticker"]]
+    act["poids_prio"] = act["priorite"].map(weights).astype(float)
 
     # ── Uniform rise and single-title targets ─────────────────────────────
     hausse_uniforme = perte / valo if valo else float("nan")
@@ -1515,7 +1536,7 @@ def compute_breakeven_targets(
     act["atteignable"] = act["cours_cible_seul"] <= act["plafond"] + 1e-9
     act["cours_cible_uniforme"] = act["close"] * (1 + hausse_uniforme)
     single = (
-        act[["ticker", "quantite", "close", "poids", "cours_cible_seul",
+        act[["ticker", "priorite", "quantite", "close", "poids", "cours_cible_seul",
              "hausse_seule", "atteignable", "cours_cible_uniforme", "plafond"]]
         .sort_values("hausse_seule").reset_index(drop=True)
     )
@@ -1523,11 +1544,14 @@ def compute_breakeven_targets(
     # ── Combination over titles down today ────────────────────────────────
     act["baisse_unit"] = (act["prev_close"] - act["close"]).clip(lower=0)
     down = act[act["baisse_unit"] > 0]
-    q, d, m = (down["quantite"].to_numpy(float), down["baisse_unit"].to_numpy(float),
-               down["marge"].to_numpy(float))
-    # unit of f = the title's own drop; cap = margin expressed in drops
-    f, f_i = _waterfill(q * d, np.divide(m, d, out=np.zeros_like(m), where=d > 0), perte)
-    delta_down = f_i * d
+    q, d, m, w = (down["quantite"].to_numpy(float), down["baisse_unit"].to_numpy(float),
+                  down["marge"].to_numpy(float), down["poids_prio"].to_numpy(float))
+    # unit of f = the title's own drop × its priority weight; cap = margin
+    # expressed in that unit
+    dw = d * w
+    f, f_i = _waterfill(q * dw, np.divide(m, dw, out=np.zeros_like(m), where=dw > 0), perte)
+    delta_down = f_i * dw
+    part_down = f_i * w
     gain_down = float((q * delta_down).sum())
 
     # Not enough with titles down → other lines, same % rise, within cap
@@ -1535,21 +1559,23 @@ def compute_breakeven_targets(
     others = act[act["baisse_unit"] <= 0]
     delta_oth = np.zeros(len(others))
     if reste > 1e-6 and len(others):
-        qo, co, mo = (others["quantite"].to_numpy(float), others["close"].to_numpy(float),
-                      others["marge"].to_numpy(float))
-        _, g = _waterfill(qo * co, np.divide(mo, co, out=np.zeros_like(mo), where=co > 0), reste)
-        delta_oth = g * co
+        qo, co, mo, wo = (others["quantite"].to_numpy(float), others["close"].to_numpy(float),
+                          others["marge"].to_numpy(float), others["poids_prio"].to_numpy(float))
+        cw = co * wo
+        _, g = _waterfill(qo * cw, np.divide(mo, cw, out=np.zeros_like(mo), where=cw > 0), reste)
+        delta_oth = g * cw
     gain_oth = float((others["quantite"].to_numpy(float) * delta_oth).sum()) if len(others) else 0.0
 
     combo = pd.concat([
         pd.DataFrame({
             "ticker": down["ticker"].to_numpy(), "groupe": "En baisse",
-            "quantite": q, "prev_close": down["prev_close"].to_numpy(float),
+            "priorite": down["priorite"].to_numpy(), "quantite": q, "prev_close": down["prev_close"].to_numpy(float),
             "close": down["close"].to_numpy(float), "delta": delta_down,
-            "part_regagnee": f_i, "plafond": down["plafond"].to_numpy(float),
+            "part_regagnee": part_down, "plafond": down["plafond"].to_numpy(float),
         }),
         pd.DataFrame({
             "ticker": others["ticker"].to_numpy(), "groupe": "Complément",
+            "priorite": others["priorite"].to_numpy(),
             "quantite": others["quantite"].to_numpy(float),
             "prev_close": others["prev_close"].to_numpy(float),
             "close": others["close"].to_numpy(float), "delta": delta_oth,
@@ -1561,8 +1587,10 @@ def compute_breakeven_targets(
     combo["hausse"] = combo["delta"] / combo["close"]
     combo["contribution"] = combo["quantite"] * combo["delta"]
     combo["au_plafond"] = combo["cours_cible"] >= combo["plafond"] - 1e-6
-    combo = combo.sort_values(["groupe", "contribution"], ascending=[False, False]) \
-                 .reset_index(drop=True)
+    combo["_rang"] = combo["priorite"].map({"ACHAT": 0, "NEUTRE": 1, "VENTE": 2})
+    combo = combo.sort_values(["groupe", "_rang", "contribution"],
+                              ascending=[False, True, False]) \
+                 .drop(columns="_rang").reset_index(drop=True)
 
     couvert = gain_down + gain_oth
     summary = {
@@ -1578,6 +1606,10 @@ def compute_breakeven_targets(
         "possible_en_une_seance": couvert >= perte - 1e-3,
         "daily_limit": daily_limit,
         "n_sessions": n_sessions,
+        "weights": weights,
+        "priorites_presentes": sorted(set(down["priorite"]),
+                                      key=["ACHAT", "NEUTRE", "VENTE"].index),
+        "suivi_cibles": bool(priorities),
         "plafond_cumule": (1 + daily_limit) ** n_sessions - 1,
     }
     return summary, single, combo
